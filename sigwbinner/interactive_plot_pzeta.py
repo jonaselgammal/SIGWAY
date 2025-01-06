@@ -4,7 +4,7 @@ import jax.numpy as jnp
 from jax import jit
 import sys
 from jax import config 
-from binned_pzeta import Binned_P_zeta
+from sigwbinner.binned_pzeta import Binned_P_zeta
 
 config.update("jax_enable_x64", True)
 
@@ -50,7 +50,7 @@ if __name__ == "__main__":
             self.line_left, = self.ax_left.loglog([], [], 'ro-')
             #self.line_right, = self.ax_right.loglog(f, model.template(f,np.log10(self.ys)), 'bo-')
             self.line_right, = self.ax_right.loglog([], [], 'bo-')
-            self.noise_curve, = self.ax_right.loglog(f,lisa_noise/np.sqrt(lisa_mission_time))
+            self.noise_curve, = self.ax_right.loglog(f,lisa_noise/np.sqrt(lisa_mission_time), 'k--')
 
             self.is_drawing = False
 
@@ -67,11 +67,11 @@ if __name__ == "__main__":
         def setup_plot(self):
             self.ax_left.set_xlim(min(self.xs), max(self.xs))
             self.ax_left.set_ylim(1e-6, 1e-1)  # Adjust y-axis limits as needed
-            self.ax_left.set_title('Pz')
+            self.ax_left.set_title(r'$\mathcal{P}_\zeta$')
 
             self.ax_right.set_xlim(min(f), max(f))
             self.ax_right.set_ylim(1e-16, 1e-7)  # Adjust y-axis limits as needed
-            self.ax_right.set_title('OmegaGW h^2')
+            self.ax_right.set_title(r'$\Omega_{GW} h^2$')
 
         def onpress(self, event):
             if event.inaxes == self.ax_left:
