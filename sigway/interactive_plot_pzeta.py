@@ -1,15 +1,14 @@
+# Global
 import numpy as np
-import os
-import jax.numpy as jnp
-from jax import jit
-import sys
 from jax import config
+import matplotlib.pyplot as plt
+
+# Local
 from sigway.binned_pzeta import Binned_P_zeta
 
 config.update("jax_enable_x64", True)
 
 if __name__ == "__main__":
-    import matplotlib.pyplot as plt
 
     model_name = "log-normal-in-Pz"
     model_label = "Log Normal in Pz"
@@ -47,8 +46,6 @@ if __name__ == "__main__":
 
     lisa_noise = LISA_noise(f)
     lisa_mission_time = 4 * 365.25 * 24 * 3600
-    import matplotlib.pyplot as plt
-    import numpy as np
 
     class InteractivePlot:
         def __init__(self, x_values):
@@ -60,7 +57,8 @@ if __name__ == "__main__":
             )
             # self.line_left, = self.ax_left.loglog(self.xs, self.ys, 'ro-')
             (self.line_left,) = self.ax_left.loglog([], [], "ro-")
-            # self.line_right, = self.ax_right.loglog(f, model.template(f,np.log10(self.ys)), 'bo-')
+            # self.line_right, = self.ax_right.loglog(
+            # f, model.template(f,np.log10(self.ys)), 'bo-')
             (self.line_right,) = self.ax_right.loglog([], [], "bo-")
             (self.noise_curve,) = self.ax_right.loglog(
                 f, lisa_noise / np.sqrt(lisa_mission_time), "k--"
@@ -77,12 +75,18 @@ if __name__ == "__main__":
             self.cid_motion = self.fig.canvas.mpl_connect(
                 "motion_notify_event", self.onmove
             )
-            self.kid = self.fig.canvas.mpl_connect("key_press_event", self.onkeypress)
+            self.kid = self.fig.canvas.mpl_connect(
+                "key_press_event", self.onkeypress
+            )
 
             self.setup_plot()
             self.fig.canvas.draw()
-            self.background_left = self.fig.canvas.copy_from_bbox(self.ax_left.bbox)
-            self.background_right = self.fig.canvas.copy_from_bbox(self.ax_right.bbox)
+            self.background_left = self.fig.canvas.copy_from_bbox(
+                self.ax_left.bbox
+            )
+            self.background_right = self.fig.canvas.copy_from_bbox(
+                self.ax_right.bbox
+            )
 
         def setup_plot(self):
             self.ax_left.set_xlim(min(self.xs), max(self.xs))
@@ -90,7 +94,9 @@ if __name__ == "__main__":
             self.ax_left.set_title(r"$\mathcal{P}_\zeta$")
 
             self.ax_right.set_xlim(min(f), max(f))
-            self.ax_right.set_ylim(1e-16, 1e-7)  # Adjust y-axis limits as needed
+            self.ax_right.set_ylim(
+                1e-16, 1e-7
+            )  # Adjust y-axis limits as needed
             self.ax_right.set_title(r"$\Omega_{GW} h^2$")
 
         def onpress(self, event):
@@ -127,7 +133,9 @@ if __name__ == "__main__":
 
         def update_right_plot(self):
             ogw = model.template(f, np.log10(self.ys))
-            snr = np.sqrt(np.trapz((ogw / lisa_noise) ** 2 * lisa_mission_time, f))
+            snr = np.sqrt(
+                np.trapz((ogw / lisa_noise) ** 2 * lisa_mission_time, f)
+            )
             print(f"SNR (4yr): {snr}")
             self.line_right.set_data(f, ogw)
             # self.ax_right.set_title(f'OmegaGW h^2 SNR (4 yr): {snr}')

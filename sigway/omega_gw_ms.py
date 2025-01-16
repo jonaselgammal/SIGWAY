@@ -1,23 +1,22 @@
-import numpy as np
-
+# Global
 import jax
 import jax.numpy as jnp
-from jax import jit, jvp
 
-jax.config.update("jax_enable_x64", True)
-
+# Local
 from sigway.ms_solver import SingleFieldSolver
 from sigway.omega_gw_jax import OmegaGWjax, u, v
 
-from functools import partial
+
+jax.config.update("jax_enable_x64", True)
 
 """
-Implementation of the OmegaGW class using jax and jit. Used when integrating a Mukhanov-Sasaki solver.
+Implementation of the OmegaGW class using jax and jit. Used when integrating a
+Mukhanov-Sasaki solver.
 """
 
 
 class OmegaGWms(OmegaGWjax):
-    """
+    r"""
     OmegaGW implementation with a fully vectorized jax implementation of
     Simpson's rule for non-uniform grids.
 
@@ -53,8 +52,8 @@ class OmegaGWms(OmegaGWjax):
         at which to interpolate :math:`\Omega_{GW}`. This is useful if you need
         a higher resolution in the k values.
     - dP_zeta: function, default=None
-        Will be ignored for this implementation since there is no derivative version
-        of the Mukhanov-Sasaki solver.
+        Will be ignored for this implementation since there is no derivative
+        version of the Mukhanov-Sasaki solver.
 
         .. note::
             In dblquad integration the spacing of the grid in s and t is
@@ -76,9 +75,9 @@ class OmegaGWms(OmegaGWjax):
     ):
         if not isinstance(P_zeta, SingleFieldSolver):
             raise ValueError(
-                "Pzeta should be an instance of SingleFieldSolver. If your Pzeta "
-                "is a function or a callable, you should use one of the other OmegaGW "
-                "classes."
+                "Pzeta should be an instance of SingleFieldSolver. If your "
+                "Pzeta is a function or a callable, you should use one of the "
+                " other OmegaGW classes."
             )
         super().__init__(
             P_zeta,
@@ -93,7 +92,7 @@ class OmegaGWms(OmegaGWjax):
         )
 
     def __call__(self, fvec, *params):
-        """
+        r"""
         Compute the :math:`\Omega_{GW}` values.
 
         Parameters:
@@ -131,7 +130,10 @@ class OmegaGWms(OmegaGWjax):
         # range of s and t
         if self.P_zeta.k is None or not self.P_zeta.upsample:
             uv = jnp.array(
-                [u(t[None, :, :], s[:, None, None]), v(t[None, :, :], s[:, None, None])]
+                [
+                    u(t[None, :, :], s[:, None, None]),
+                    v(t[None, :, :], s[:, None, None]),
+                ]
             )
             mink = jnp.min(kvec) * jnp.min(uv)
             maxk = jnp.max(kvec) * jnp.max(uv)

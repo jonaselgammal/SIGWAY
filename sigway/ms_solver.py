@@ -1,41 +1,45 @@
-# Module that computes the solution of the Mukhanov-Sasaki equation for a given potential
-# and initial conditions. First the background evolution is computed, then compatibilty with
-# CMB observations is checked, and finally the perturbations are computed.
+# Module that computes the solution of the Mukhanov-Sasaki equation for a given
+# potential and initial conditions. First the background evolution is computed,
+# then compatibilty with CMB observations is checked, and finally the
+# perturbations are computed.
+
+# Global
+import jax
+from jax import numpy as jnp
+from jax import jit
+
+from jax.scipy.stats import multivariate_normal
+
 from collections import namedtuple
 
 from diffrax import (
     diffeqsolve,
     ODETerm,
-    Dopri5,
     Tsit5,
     PIDController,
     DiscreteTerminatingEvent,
     SaveAt,
     backward_hermite_coefficients,
-    LinearInterpolation,
+    # LinearInterpolation,
     CubicInterpolation,
 )
-import jax
-from jax import numpy as jnp
-from jax import jit
 
-jax.config.update("jax_enable_x64", True)
-from jax.scipy.stats import multivariate_normal
 
+from functools import partial
+
+from scipy.interpolate import CubicSpline
+import matplotlib.pyplot as plt
+from matplotlib.ticker import LogLocator, NullFormatter, FormatStrFormatter
+
+# Local
 from sigway.units import (
     efolds_from_wavenumber_si_units,
     H_from_wavenumber,
     wavenumber_from_efolds_si_units,
 )
 
-import matplotlib.pyplot as plt
-from matplotlib.ticker import LogLocator, NullFormatter, FormatStrFormatter
 
-from scipy.interpolate import CubicSpline
-import time
-
-from functools import partial
-import os
+jax.config.update("jax_enable_x64", True)
 
 
 # Create an Exception class for consistency checks
@@ -46,12 +50,14 @@ class ConsistencyError(Exception):
 @partial(jax.jit, static_argnums=(0, 1, 2, 4))
 def _run_background(Ud, max_efolds, phi0, pvalues, solver_opts):
     """
-    Solves the background equations for an ultra slow rolling single inflaton field.
+    Solves the background equations for an ultra slow rolling single inflaton
+    field.
 
     Parameters
     ----------
     Ud : function
-        Function that computes the first derivative of the potential with respect to the field.
+        Function that computes the first derivative of the potential with
+        respect to the field.
     max_efolds : int
         Maximum number of e-folds to integrate.
     phi0 : float
@@ -64,21 +70,24 @@ def _run_background(Ud, max_efolds, phi0, pvalues, solver_opts):
     Returns
     -------
     diffrax.diffeqsolve.Solution
-        The solution of the differential equations containing the evolution of the inflaton field,
-        its derivative, and the Hubble parameter over the specified number of e-folds.
+        The solution of the differential equations containing the evolution of
+        the inflaton field, its derivative, and the Hubble parameter over the
+        specified number of e-folds.
     """
 
     def equations(n, variables, args):
         """
-        Defines the system of differential equations for the background evolution.
+        Defines the system of differential equations for the background
+        evolution.
 
         Parameters
         ----------
         n : float
             The number of e-folds.
         variables : array-like
-            The state variables of the system [x, y, h], where x is the field value,
-            y is its derivative with respect to the number of e-folds, and h is the Hubble parameter.
+            The state variables of the system [x, y, h], where x is the field
+            value, y is its derivative with respect to the number of e-folds,
+            and h is the Hubble parameter.
         args : tuple
             Additional arguments for the function (unused here).
 
@@ -121,7 +130,9 @@ def _run_background(Ud, max_efolds, phi0, pvalues, solver_opts):
     # Setting up the differential equation solver
     term = ODETerm(equations)
     solver = Tsit5()
-    stepsize_controller = PIDController(rtol=solver_opts.rtol, atol=solver_opts.atol)
+    stepsize_controller = PIDController(
+        rtol=solver_opts.rtol, atol=solver_opts.atol
+    )
     discrete_terminating_event = DiscreteTerminatingEvent(inflation_end)
     saveat = solver_opts.saveat
 
@@ -147,18 +158,22 @@ def _solve_perturbations(
     Ud, Udd, phiIn, yIn, hIn, nin, nout, lograt, pvalues, solver_opts
 ):
     """
-    Solves the perturbation equations for an ultra slow rolling single inflaton field.
+    Solves the perturbation equations for an ultra slow rolling single inflaton
+    field.
 
     Parameters
     ----------
     Ud : function
-        Function that computes the first derivative of the potential with respect to the field.
+        Function that computes the first derivative of the potential with
+        respect to the field.
     Udd : function
-        Function that computes the second derivative of the potential with respect to the field.
+        Function that computes the second derivative of the potential with
+        respect to the field.
     phiIn : float
         Initial value of the inflaton field.
     yIn : float
-        Initial value of the derivative of the inflaton field with respect to the number of e-folds.
+        Initial value of the derivative of the inflaton field with respect to
+        the number of e-folds.
     hIn : float
         Initial value of the Hubble parameter.
     nin : float
@@ -175,16 +190,17 @@ def _solve_perturbations(
     Returns
     -------
     diffrax.diffeqsolve.Solution
-        The solution of the differential equations containing the evolution of the perturbations
-        over the specified number of e-folds.
+        The solution of the differential equations containing the evolution of
+        the perturbations over the specified number of e-folds.
     """
     # Initial conditions for the perturbations
+
     dPhiRin = 1.0  # Initial value of the real part of tilde Delta phi
-    dPhiRpRin = (
-        -1.0
-    )  # Initial value of the derivative of the real part of tilde Delta phi with respect to N
+    dPhiRpRin = -1.0  # Initial value of the derivative of the real part of
+    # tilde Delta phi with respect to N
     dPhiIin = 0.0  # Initial value of the imaginary part of tilde Delta phi
-    dPhiIpIin = 0.0  # Initial value of the derivative of the imaginary part of tilde Delta phi with respect to N
+    dPhiIpIin = 0.0  # Initial value of the derivative of the imaginary part of
+    # tilde Delta phi with respect to N
 
     def equations_perturbations(n, variables, args):
         """
@@ -195,10 +211,12 @@ def _solve_perturbations(
         n : float
             The number of e-folds.
         variables : array-like
-            The state variables of the system [x, y, h, dPhiR, dPhipR, dPhiI, dPhipI], where x is the field value,
-            y is its derivative with respect to the number of e-folds, h is the Hubble parameter,
-            dPhiR and dPhiI are the real and imaginary parts of the perturbation field, and dPhipR and dPhipI are
-            their derivatives with respect to the number of e-folds.
+            The state variables of the system [x, y, h, dPhiR, dPhipR, dPhiI,
+            dPhipI], where x is the field value, y is its derivative with
+            respect to the number of e-folds, h is the Hubble parameter, dPhiR
+            and dPhiI are the real and imaginary parts of the perturbation
+            field, and dPhipR and dPhipI are their derivatives with respect to
+            the number of e-folds.
         args : tuple
             Additional arguments for the function (nin, lograt).
 
@@ -231,12 +249,16 @@ def _solve_perturbations(
             - 2 * jnp.exp(lograt - n + nin) / h * dPhiR
         )
 
-        return jnp.array([derx, dery, derh, derPhiR, derPhipR, derPhiI, derPhipI])
+        return jnp.array(
+            [derx, dery, derh, derPhiR, derPhipR, derPhiI, derPhipI]
+        )
 
     # Setting up the differential equation solver
     term = ODETerm(equations_perturbations)
     solver = Tsit5()
-    stepsize_controller = PIDController(rtol=solver_opts.rtol, atol=solver_opts.atol)
+    stepsize_controller = PIDController(
+        rtol=solver_opts.rtol, atol=solver_opts.atol
+    )
     saveat = solver_opts.saveat
 
     # Solving the differential equations
@@ -261,20 +283,25 @@ def _run_perturbations(
     Ud, Udd, phiIn, yIn, yOut, hIn, nin, nout, lograt, pvalues, solver_opts
 ):
     """
-    Runs the perturbation solver and computes the dimensionless power spectrum Pzeta/V0.
+    Runs the perturbation solver and computes the dimensionless power spectrum
+    Pzeta/V0.
 
     Parameters
     ----------
     Ud : function
-        Function that computes the first derivative of the potential with respect to the field.
+        Function that computes the first derivative of the potential with
+        respect to the field.
     Udd : function
-        Function that computes the second derivative of the potential with respect to the field.
+        Function that computes the second derivative of the potential with
+        respect to the field.
     phiIn : float
         Initial value of the inflaton field.
     yIn : float
-        Initial value of the derivative of the inflaton field with respect to the number of e-folds.
+        Initial value of the derivative of the inflaton field with respect to
+        the number of e-folds.
     yOut : float
-        Final value of the derivative of the inflaton field with respect to the number of e-folds.
+        Final value of the derivative of the inflaton field with respect to the
+        number of e-folds.
     hIn : float
         Initial value of the Hubble parameter.
     nin : float
@@ -298,7 +325,8 @@ def _run_perturbations(
         Ud, Udd, phiIn, yIn, hIn, nin, nout, lograt, pvalues, solver_opts
     )
 
-    # Extract the real and imaginary parts of the perturbation field at the final step
+    # Extract the real and imaginary parts of the perturbation field at the
+    # final step
     deltaPhiR = sol.ys[-1][3]
     deltaPhiI = sol.ys[-1][5]
     yOut = sol.ys[-1][1]
@@ -327,10 +355,11 @@ def interpolation_inner(knew, k, coeff):
 
 class SingleFieldSolver:
     """
-    This class solves the Mukhanov-Sasaki equation for a single field model with a given potential.
-    The potential must be passed as a callable function that takes the field value as input and returns
-    the potential energy at that point. The initial conditions are given by the field value and its derivative
-    at the initial time.
+    This class solves the Mukhanov-Sasaki equation for a single field model
+    with a given potential.The potential must be passed as a callable function
+    that takes the field value as input and returns the potential energy at that
+    point. The initial conditions are given by the field value and its
+    derivative at the initial time.
 
     Parameters
     ----------
@@ -343,9 +372,11 @@ class SingleFieldSolver:
     N_CMB_to_end : float, optional
         Number of e-folds from the CMB to the end of inflation, by default 55.0.
     max_efolds : float, optional
-        Maximum number of e-folds to run the background evolution, by default 1000.0.
+        Maximum number of e-folds to run the background evolution,
+        by default 1000.0.
     cmb_bounds : dict, optional
-        Dictionary containing the means and covariance of the CMB bounds, by default {}.
+        Dictionary containing the means and covariance of the CMB bounds,
+        by default {}.
     check_consistency : bool, optional
         Flag to check consistency with CMB bounds, by default False.
     N_subhorizon : float, optional
@@ -355,26 +386,31 @@ class SingleFieldSolver:
     k : array-like, optional
         Array of wavenumbers to compute the power spectrum, by default None.
     upsample : bool, optional
-        Flag to upsample the power spectrum, by default False. If upsample=True, k must be provided.
+        Flag to upsample the power spectrum, by default False.
+        If upsample=True, k must be provided.
     background_solver_opts : dict, optional
-        Options for the background solver. If not explicitly provided, the default options are used:
+        Options for the background solver. If not explicitly provided,
+        the default options are used:
         - rtol : 1e-8. Relative tolerance for the adaptive step size controller.
         - atol : 1e-8. Absolute tolerance for the adaptive step size controller.
         - max_steps : 100000. Maximum number of steps for the solver.
         - dt0 : 1e-3. Initial step size (in e-folds).
-        - saveat : {"steps": True}. Save the solution at each step. :bold:`Warning:` only change
-            this option if you know what you are doing.
+        - saveat : {"steps": True}. Save the solution at each step.
+        :bold:`Warning:` only change this option if you know what you are doing.
     perturbation_solver_opts : dict, optional
-        Options for the perturbation solver. If not explicitly provided, the default options are used:
+        Options for the perturbation solver.
+        If not explicitly provided, the default options are used:
         - rtol : 1e-6. Relative tolerance for the adaptive step size controller.
         - atol : 1e-6. Absolute tolerance for the adaptive step size controller.
         - max_steps : 1000000. Maximum number of steps for the solver.
         - dt0 : 1e-3. Initial step size (in e-folds).
-        - saveat : {"t1": True}. Only return the solution at :math:`N_{\text{out}}`.
-            :bold:`Warning:` only change this option if you know what you are doing.
-            If you set "steps": True this will slow down things considerably.
+        - saveat : {"t1": True}.
+        Only return the solution at :math:`N_{\text{out}}`.
+        :bold:`Warning:` only change this option if you know what you are doing.
+        If you set "steps": True this will slow down things considerably.
     error_on_fail : bool, optional
-        Flag to raise an error if the perturbation solver fails, by default False.
+        Flag to raise an error if the perturbation solver fails,
+        by default False.
 
     """
 
@@ -397,12 +433,14 @@ class SingleFieldSolver:
     ):
         # Ensure the potential function is JAX-compatible
         if not isinstance(V, jax.interpreters.ad.JVPTracer):
-            try:
-                V = jax.jit(V)
-                self.V = V
+            # try:
+            V = jax.jit(V)
+            self.V = V
 
-            except:
-                raise ValueError("The potential V must be a jax-compatible function.")
+            # except:
+            #     raise ValueError(
+            #         "The potential V must be a jax-compatible function."
+            #     )
         else:
             self.V = V
 
@@ -452,17 +490,23 @@ class SingleFieldSolver:
             self.k = k
             if not upsample:
                 Warning(
-                    "Providing k and not upsampling will result in k being ignored."
+                    "Providing k and not upsampling will result in k "
+                    "being ignored."
                 )
-        elif isinstance(k, jnp.ndarray):  # If f is an iterable, convert to array
+        elif isinstance(
+            k, jnp.ndarray
+        ):  # If f is an iterable, convert to array
             self.k = jnp.array(k)
             if not upsample:
                 Warning(
-                    "Providing k and not upsampling will result in k being ignored."
+                    "Providing k and not upsampling will result in k being "
+                    "ignored."
                 )
         else:
             raise ValueError(
-                "k should be None, a callable or an iterable. Got {}".format(type(k))
+                "k should be None, a callable or an iterable. Got {}".format(
+                    type(k)
+                )
             )
         self.upsample = upsample
 
@@ -485,27 +529,29 @@ class SingleFieldSolver:
         }
 
         # Set background solver options
-        self.background_solver_opts = default_solver_opts["background"]._replace(
-            **background_solver_opts
-        )
+        self.background_solver_opts = default_solver_opts[
+            "background"
+        ]._replace(**background_solver_opts)
         invalid_opts = set(self.background_solver_opts._fields) - set(
             default_solver_opts["background"]._fields
         )
         if invalid_opts:
             raise ValueError(
-                f"Invalid options found in background_solver_opts: {', '.join(invalid_opts)}"
+                "Invalid options found in background_solver_opts:"
+                f" {', '.join(invalid_opts)}"
             )
 
         # Set perturbation solver options
-        self.perturbation_solver_opts = default_solver_opts["perturbation"]._replace(
-            **perturbation_solver_opts
-        )
+        self.perturbation_solver_opts = default_solver_opts[
+            "perturbation"
+        ]._replace(**perturbation_solver_opts)
         invalid_opts = set(self.perturbation_solver_opts._fields) - set(
             default_solver_opts["perturbation"]._fields
         )
         if invalid_opts:
             raise ValueError(
-                f"Invalid options found in perturbation_solver_opts: {', '.join(invalid_opts)}"
+                "Invalid options found in perturbation_solver_opts:"
+                f" {', '.join(invalid_opts)}"
             )
 
     def run_background(self, params):
@@ -529,7 +575,11 @@ class SingleFieldSolver:
             Array of Hubble parameter values.
         """
         bsol = _run_background(
-            self.Ud, self.max_efolds, self.phi0, params, self.background_solver_opts
+            self.Ud,
+            self.max_efolds,
+            self.phi0,
+            params,
+            self.background_solver_opts,
         )
         bmask = jnp.isfinite(bsol.ts)
         N = bsol.ts[bmask]
@@ -552,7 +602,8 @@ class SingleFieldSolver:
         phi : array-like
             Array of field values from the background evolution.
         y : array-like
-            Array of field derivatives with respect to e-folds from the background evolution.
+            Array of field derivatives with respect to e-folds from the
+            background evolution.
         h : array-like
             Array of Hubble parameter values from the background evolution.
         params : tuple
@@ -574,7 +625,9 @@ class SingleFieldSolver:
 
         # Check that we have enough e-folds to evolve the perturbations
         if jnp.min(Nk) < self.N_subhorizon:
-            raise ConsistencyError("Not enough e-folds to solve for perturbations")
+            raise ConsistencyError(
+                "Not enough e-folds to solve for perturbations"
+            )
 
         Nin = Nk - self.N_subhorizon
         Nout = Nk + self.N_suphorizon
@@ -609,9 +662,9 @@ class SingleFieldSolver:
 
     def run_single_k(self, k, N, phi, y, h, params):
         """
-        Run the perturbation evolution for a single wavenumber k. Returns the diffrax
-        solution object and the log of the ratio of the wavenumber to the scale factor
-        (lograt).
+        Run the perturbation evolution for a single wavenumber k. Returns the
+        diffrax solution object and the log of the ratio of the wavenumber to
+        the scale factor (lograt).
 
         Parameters
         ----------
@@ -622,7 +675,8 @@ class SingleFieldSolver:
         phi : array-like
             Array of field values from the background evolution.
         y : array-like
-            Array of field derivatives with respect to e-folds from the background evolution.
+            Array of field derivatives with respect to e-folds from the
+            background evolution.
         h : array-like
             Array of Hubble parameter values from the background evolution.
         params : tuple
@@ -631,8 +685,8 @@ class SingleFieldSolver:
         Returns
         -------
         diffrax.diffeqsolve.Solution
-            The solution of the differential equations containing the evolution of the perturbations
-            over the specified number of e-folds.
+            The solution of the differential equations containing the evolution
+            of the perturbations over the specified number of e-folds.
         float
             log(k/a) at nin.
         """
@@ -645,22 +699,35 @@ class SingleFieldSolver:
 
         # Check that we have enough e-folds to evolve the perturbations
         if jnp.min(Nk) < self.N_subhorizon:
-            raise ConsistencyError("Not enough e-folds to solve for perturbations")
+            raise ConsistencyError(
+                "Not enough e-folds to solve for perturbations"
+            )
 
         Nin = Nk - self.N_subhorizon
         Nout = Nk + self.N_suphorizon
 
         phiIn = jnp.interp(Nin, N, phi)
         yIn = jnp.interp(Nin, N, y)
-        yOut = jnp.interp(Nout, N, y)
+        # yOut = jnp.interp(Nout, N, y)
         hIn = jnp.interp(Nin, N, h)
         lograt = jnp.log(Hk) + self.N_subhorizon
 
         # We need to make sure that we are saving the solution at each step.
-        solver_opts = self.perturbation_solver_opts._replace(saveat=SaveAt(steps=True))
+        solver_opts = self.perturbation_solver_opts._replace(
+            saveat=SaveAt(steps=True)
+        )
         # Compute the perturbations with vmap
         sol = _solve_perturbations(
-            self.Ud, self.Udd, phiIn, yIn, hIn, Nin, Nout, lograt, params, solver_opts
+            self.Ud,
+            self.Udd,
+            phiIn,
+            yIn,
+            hIn,
+            Nin,
+            Nout,
+            lograt,
+            params,
+            solver_opts,
         )
         return sol, lograt
 
@@ -675,7 +742,8 @@ class SingleFieldSolver:
         phi : array-like
             Array of field values from the background evolution.
         y : array-like
-            Array of field derivatives with respect to e-folds from the background evolution.
+            Array of field derivatives with respect to e-folds from the
+            background evolution.
         h : array-like
             Array of Hubble parameter values from the background evolution.
         params : tuple
@@ -708,9 +776,10 @@ class SingleFieldSolver:
         return p, params_at_cmb
 
     def pzeta_sr(self, y, h, params):
-        """
+        r"""
         Calculate the value of P_{\zeta}(N) in the slow-roll approximation using
-        the H-version of the slow roll parameters as a function of the number of e-folds.
+        the H-version of the slow roll parameters as a function of the number
+        of e-folds.
 
         Parameters
         ----------
@@ -729,9 +798,9 @@ class SingleFieldSolver:
         return self.V(self.phi0, *params) * h**2 / (8 * jnp.pi**2 * y**2 / 2)
 
     def epsilon_h(self, y):
-        """
-        Calculate the first slow-roll parameter :math:`\epsilon_H`. This is the Hubble
-        version of the slow-roll parameter.
+        r"""
+        Calculate the first slow-roll parameter :math:`\epsilon_H`.
+        This is the Hubble version of the slow-roll parameter.
 
         Parameters
         ----------
@@ -746,9 +815,9 @@ class SingleFieldSolver:
         return y**2 / 2
 
     def eta_h(self, phi, y, h, params):
-        """
-        Calculate the second slow-roll parameter :math:`\eta_H`. This is the Hubble
-        version of the slow-roll parameter.
+        r"""
+        Calculate the second slow-roll parameter :math:`\eta_H`.
+        This is the Hubble version of the slow-roll parameter.
 
         Parameters
         ----------
@@ -804,9 +873,9 @@ class SingleFieldSolver:
         return 16 * epsilon_h
 
     def run(self, k, *params):
-        """
-        Compute the power spectrum P_{\zeta}(k) for a given set of parameters. Used by
-        the Omega_GW class.
+        r"""
+        Compute the power spectrum P_{\zeta}(k) for a given set of parameters.
+        Used by the Omega_GW class.
 
         Parameters
         ----------
@@ -832,7 +901,7 @@ class SingleFieldSolver:
         # Compute likelihood at CMB scale
         # THIS IS NOT SUPPORTED YET
         if self.check_consistency:
-            p = self.p_at_cmb(N, phi, y, h, params)
+            _ = self.p_at_cmb(N, phi, y, h, params)
         # Compute perturbations
         P_zeta = self.run_perturbations(k, N, phi, y, h, params)
 
@@ -840,15 +909,15 @@ class SingleFieldSolver:
 
         def P_zeta_interpolation(knew, *params):
             return interpolation_inner(knew, k, coeff)
-            return jnp.interp(knew, k, P_zeta, left=0.0, right=0.0)
-            return LinearInterpolation(k, P_zeta).evaluate(knew)
+            # return jnp.interp(knew, k, P_zeta, left=0.0, right=0.0)
+            # return LinearInterpolation(k, P_zeta).evaluate(knew)
 
         return P_zeta_interpolation
 
     def __call__(self, k, *params):
-        """
-        Compute the power spectrum P_{\zeta}(k) for a given set of parameters. Used by
-        the Omega_GW class.
+        r"""
+        Compute the power spectrum P_{\zeta}(k) for a given set of parameters.
+        Used by the Omega_GW class.
 
         Parameters
         ----------
@@ -874,7 +943,7 @@ class SingleFieldSolver:
         # Compute likelihood at CMB scale
         # THIS IS NOT SUPPORTED YET
         if self.check_consistency:
-            p = self.p_at_cmb(N, phi, y, h, params)
+            _ = self.p_at_cmb(N, phi, y, h, params)
         # Compute perturbations
         P_zeta = self.run_perturbations(k, N, phi, y, h, params)
 
@@ -912,7 +981,9 @@ class SingleFieldSolver:
 
         # Compute slow-roll parameters
         epsilon = self.epsilon_h(y)
-        eta = jnp.array([self.eta_h(i, j, k, params) for i, j, k in zip(phi, y, h)])
+        eta = jnp.array(
+            [self.eta_h(i, j, k, params) for i, j, k in zip(phi, y, h)]
+        )
 
         # Create subplots
         fig, axs = plt.subplots(5, 1, sharex=True, figsize=(8, 12))
@@ -920,11 +991,17 @@ class SingleFieldSolver:
         # Add a vertical line at the CMB scale
         for ax in axs:
             ax.axvline(
-                N_CMB - Nend, color="k", linestyle="--", label="CMB scale", alpha=0.5
+                N_CMB - Nend,
+                color="k",
+                linestyle="--",
+                label="CMB scale",
+                alpha=0.5,
             )
 
         # Plot P_zeta for background and perturbations
-        axs[0].plot(N - Nend, Pzeta_SR, label="$\\mathcal{P}_{\\zeta}$ (SR-approx.)")
+        axs[0].plot(
+            N - Nend, Pzeta_SR, label="$\\mathcal{P}_{\\zeta}$ (SR-approx.)"
+        )
         axs[0].plot(Nk - Nend, Pzeta, label="$\\mathcal{P}_{\\zeta}$ (full)")
         axs[0].set_ylabel("$\\mathcal{P}_{\\zeta}$")
         axs[0].set_yscale("log")
@@ -981,7 +1058,9 @@ class SingleFieldSolver:
 
         return fig
 
-    def plot_potential(self, params, phi_range=None, n_points=1000, relative=False):
+    def plot_potential(
+        self, params, phi_range=None, n_points=1000, relative=False
+    ):
         """
         Plot the potential for a given set of parameters.
 
@@ -1021,9 +1100,18 @@ if __name__ == "__main__":
 
     def V(phi, a, lam, v, nfac):
         # a, lam, v, nfac = p
-        b = (1 + nfac) * (1 - a**2 / 3 + a**2 / 3 * (9 / (2 * a**2) - 1) ** (2 / 3))
+        b = (1 + nfac) * (
+            1 - a**2 / 3 + a**2 / 3 * (9 / (2 * a**2) - 1) ** (2 / 3)
+        )
         f = phi / v
-        return lam * v**4 / 12 * f**2 * (6 - 4 * a * f + 3 * f**2) / (1 + b * f**2) ** 2
+        return (
+            lam
+            * v**4
+            / 12
+            * f**2
+            * (6 - 4 * a * f + 3 * f**2)
+            / (1 + b * f**2) ** 2
+        )
 
     phi0 = 3.0
     pi0 = 0.0
