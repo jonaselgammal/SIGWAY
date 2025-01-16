@@ -1,8 +1,8 @@
-# SIGWBinner
+# SIGWAY
 
-### A package for computing second-order, scalar induced gravitational wave signals. (not to be confused with SGWBinner, I did this on purpose, muhaha)
+### A package for computing second-order, scalar induced gravitational wave signals. 
 
-SIGWBinner is a collaborative effort of the LISA Cosmology Working Group in an effort to build the foundation of a data analysis pipeline for stochastic gravitational wave signals emitted from inflation. Currently the package contains modules for
+SIGWAY is a collaborative effort of the LISA Cosmology Working Group in an effort to build the foundation of a data analysis pipeline for stochastic gravitational wave signals emitted from inflation. Currently the package contains modules for
 
 - solving the Mukhanov-Sasaki equation for single field ultra-slow roll inflationary models and computing the primordial scalar power spectrum $\mathcal{P}_\zeta$
 - computing the second order gravitational wave power spectrum $\Omega_{\mathrm{GW}}$ from $\mathcal{P}_\zeta$ for reentry during radiation domination or a phase of early matter domination.
@@ -16,13 +16,13 @@ If you use this code please cite our paper (ArXiv link will be added shortly) an
 Currently, to install this code, you will have to clone this repository. To do that you want to clone either with SSH or HTTPS by navigating to the folder you want the package to live in and running
 
 ```
-$ git clone git@github.com:jonaselgammal/SIGWBinner.git
+$ git clone git@github.com:jonaselgammal/SIGWAY.git
 ```
 
 or
 
 ```
-$ git clone https://github.com/jonaselgammal/SIGWBinner.git
+$ git clone https://github.com/jonaselgammal/SIGWAY.git
 ```
 
 Then, cd to the folder that's created and run

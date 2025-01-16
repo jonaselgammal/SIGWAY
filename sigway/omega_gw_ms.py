@@ -3,16 +3,18 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 from jax import jit, jvp
+
 jax.config.update("jax_enable_x64", True)
 
-from sigwbinner.ms_solver import SingleFieldSolver
-from sigwbinner.omega_gw_jax import OmegaGWjax, u, v
+from sigway.ms_solver import SingleFieldSolver
+from sigway.omega_gw_jax import OmegaGWjax, u, v
 
 from functools import partial
 
 """
 Implementation of the OmegaGW class using jax and jit. Used when integrating a Mukhanov-Sasaki solver.
 """
+
 
 class OmegaGWms(OmegaGWjax):
     """
@@ -59,12 +61,36 @@ class OmegaGWms(OmegaGWjax):
             handled by scipy. Thus the grid in s and t will be ignored and
             only the end points will be used.
     """
-    def __init__(self, P_zeta, s, t, f=None, norm="RD", kernel="RD", upsample=False, dP_zeta=None, jit=False):
+
+    def __init__(
+        self,
+        P_zeta,
+        s,
+        t,
+        f=None,
+        norm="RD",
+        kernel="RD",
+        upsample=False,
+        dP_zeta=None,
+        jit=False,
+    ):
         if not isinstance(P_zeta, SingleFieldSolver):
-            raise ValueError("Pzeta should be an instance of SingleFieldSolver. If your Pzeta "
-                             "is a function or a callable, you should use one of the other OmegaGW "
-                             "classes.")
-        super().__init__(P_zeta, s, t, f=f, norm=norm, kernel=kernel, upsample=upsample, dP_zeta=None, jit=jit)
+            raise ValueError(
+                "Pzeta should be an instance of SingleFieldSolver. If your Pzeta "
+                "is a function or a callable, you should use one of the other OmegaGW "
+                "classes."
+            )
+        super().__init__(
+            P_zeta,
+            s,
+            t,
+            f=f,
+            norm=norm,
+            kernel=kernel,
+            upsample=upsample,
+            dP_zeta=None,
+            jit=jit,
+        )
 
     def __call__(self, fvec, *params):
         """
@@ -80,7 +106,7 @@ class OmegaGWms(OmegaGWjax):
         - jax.numpy.ndarray
             Array of :math:`\Omega_{GW}` values.
         """
-        
+
         # setting k for evaluation
         kvec_full_resolution = jnp.copy(jnp.array(fvec)) * 2 * jnp.pi
         if self.upsample:
@@ -104,18 +130,23 @@ class OmegaGWms(OmegaGWjax):
         # If no k is provided for P_zeta it's calculated in the max
         # range of s and t
         if self.P_zeta.k is None or not self.P_zeta.upsample:
-            uv = jnp.array([u(t[None, :, :], s[:, None, None]), v(t[None, :, :], s[:, None, None])])
-            mink = jnp.min(kvec)*jnp.min(uv)
-            maxk = jnp.max(kvec)*jnp.max(uv)
+            uv = jnp.array(
+                [u(t[None, :, :], s[:, None, None]), v(t[None, :, :], s[:, None, None])]
+            )
+            mink = jnp.min(kvec) * jnp.min(uv)
+            maxk = jnp.max(kvec) * jnp.max(uv)
             kint = jnp.geomspace(mink, maxk, 100)
         else:
             kint = self.P_zeta.k
-            
 
         P_zeta_interp = self.P_zeta.run(kint, *params)
 
         res = self.integration_routine(P_zeta_interp, s, t, kvec, *params)
 
-        out = 2 * self.norm(kvec_full_resolution) * self.upsample_k(kvec_full_resolution, kvec, res)
+        out = (
+            2
+            * self.norm(kvec_full_resolution)
+            * self.upsample_k(kvec_full_resolution, kvec, res)
+        )
 
         return out
