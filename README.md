@@ -2,7 +2,7 @@
 
 ### A package for computing second-order, scalar induced gravitational wave signals. 
 
-SIGWAY is a collaborative effort of the LISA Cosmology Working Group in an effort to build the foundation of a data analysis pipeline for stochastic gravitational wave signals emitted from inflation. Currently the package contains modules for
+SIGWAY is a collaborative effort of the LISA Cosmology Working Group to build the foundation of a data analysis pipeline for stochastic gravitational wave signals emitted by curvature perturbations in the early universe. Currently the package contains modules for
 
 - solving the Mukhanov-Sasaki equation for single field ultra-slow roll inflationary models and computing the primordial scalar power spectrum $\mathcal{P}_\zeta$
 - computing the second order gravitational wave power spectrum $\Omega_{\mathrm{GW}}$ from $\mathcal{P}_\zeta$ for reentry during radiation domination or a phase of early matter domination.
