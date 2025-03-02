@@ -25,11 +25,11 @@ def wavenumber_from_efolds_si_units(N, H, N_CMB, H_CMB):
     N : array-like
         E-fold values.
     H : array-like
-        Hubble parameter values corresponding to the e-folds.
+        Hubble parameter values (in some units) corresponding to the e-folds.
     N_CMB : float
         Number of e-folds at the CMB scale.
     H_CMB : float
-        Hubble parameter at the CMB scale.
+        Hubble parameter at the CMB scale (in the same units of H).
 
     Returns
     -------
@@ -54,11 +54,11 @@ def efolds_from_wavenumber_si_units(k, H, N_CMB, H_CMB):
     k : array-like
         Wavenumber values in s^-1.
     H : array-like
-        Hubble parameter values corresponding to the wavenumbers.
+        Hubble parameter values (in some units) corresponding to the k values.
     N_CMB : float
         Number of e-folds at the CMB scale.
     H_CMB : float
-        Hubble parameter at the CMB scale.
+        Hubble parameter at the CMB scale (in the same units of H).
 
     Returns
     -------
@@ -75,30 +75,40 @@ def efolds_from_wavenumber_si_units(k, H, N_CMB, H_CMB):
 def H_from_wavenumber(k, N, H, N_CMB, H_CMB):
     """
     Calculate the Hubble parameter H as a function of wavenumber k using JAX.
+    First it computes the wavenumber k as a function of the number of e-folds N
+    and the Hubble parameter H, normalized such that k=0.05 Mpc^-1 corresponds
+    to N_CMB_to_end e-folds before the end of inflation. Then it sorts the
+    wavenumber k and Hubble parameter H values in ascending order and
+    interpolates the Hubble parameter as a function of wavenumber k.
 
     Parameters
     ----------
     k : array-like
-        Wavenumber values in s^-1.
+        Wavenumber values in s^-1 where we want the H evaluations.
     N : array-like
         E-fold values.
     H : array-like
-        Hubble parameter values corresponding to N values.
+        Hubble parameter values (in some units) corresponding to N values.
     N_CMB : float
         Number of e-folds at the CMB scale.
     H_CMB : float
-        Hubble parameter at the CMB scale.
+        Hubble parameter at the CMB scale (in the same units of H).
 
     Returns
     -------
     H_k : array-like
         Hubble parameter as a function of wavenumber k.
     """
+
+    # Calculate the wavenumber k as a function of N and H
     k_N = wavenumber_from_efolds_si_units(N, H, N_CMB, H_CMB)
+
+    # Sort the wavenumber k and Hubble parameter H values
     sorted_indices = jnp.argsort(k_N)
     k_N_sorted = k_N[sorted_indices]
     H_N_sorted = H[sorted_indices]
 
     # Interpolation using JAX's interp
     H_k = jnp.interp(k, k_N_sorted, H_N_sorted)
+
     return H_k
