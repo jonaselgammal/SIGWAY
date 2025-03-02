@@ -150,14 +150,6 @@ profiles/
 *.pdf
 *.svg
 
-# Exclude generated data files
-tests/**/*.pkl
-tests/**/*.txt
-tests/**/*.csv
-tests/**/*.json
-tests/**/*.npy
-tests/**/*.npz
-
 # Exclude generated chains
 *.updated.yaml
 *.updated.dill_pickle
