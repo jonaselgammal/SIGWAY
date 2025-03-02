@@ -1,6 +1,7 @@
 # Global
-import numpy as np
+import os
 import unittest
+import numpy as np
 
 # Local
 from sigway import units as un
@@ -13,7 +14,9 @@ from sigway import units as un
 # dV / dphi is the derivative of the potential with respect to the inflaton
 # field phi. The potential is V = 0.5 * m**2 * phi**2 and the derivative is
 # dV / dphi = m**2 * phi, where m is the mass of the inflaton field.
-test_data = np.load("test_data/data_test_units.npz")
+test_data = np.load(
+    os.path.join(os.path.dirname(__file__), "test_data/data_test_units.npz")
+)
 N, H, k_vals = test_data["data_1"]
 kk, HH = test_data["data_2"]
 
