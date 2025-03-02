@@ -6,13 +6,18 @@ from jax import jit
 jax.config.update("jax_enable_x64", True)
 
 # Conversion factors
-Mpc_to_m = 3.086e22  # 1 Mpc in meters
 c = 299792458.0  # Speed of light in m/s
 M_p = 2.176e-8  # Planck mass in kg (in natural units this would be 1)
+Mpc_to_m = 3.086e22  # 1 Mpc in meters
 CMB_scale = 0.05  # Mpc^-1
 CMB_scale_k = CMB_scale / Mpc_to_m * c  # Mpc^-1 to s^-1
 
+# Some cosmological parameters
+Omega_radiation_h2_today = 4.2e-5  # Omega_r h^2 today
+SM_CG_factor = 0.39  # CG factor for the SM
 
+
+# Utils to convert between e-folds, wavenumber, and Hubble parameter
 @jit
 def wavenumber_from_efolds_si_units(N, H, N_CMB, H_CMB):
     """
@@ -112,3 +117,101 @@ def H_from_wavenumber(k, N, H, N_CMB, H_CMB):
     H_k = jnp.interp(k, k_N_sorted, H_N_sorted)
 
     return H_k
+
+
+# Utils for integration
+@jit
+def simpson_uniform(f, x):
+    """
+    Fully vectorized implementation of Simpson's rule for a uniform grid.
+    If f is a multi-dimensional array, the integration is performed over the
+    first axis.
+
+    Parameters:
+    - f: jax.numpy.ndarray, shape (N, ...)
+        Array of function values. Integration is performed over the first axis.
+    - x: jax.numpy.ndarray, shape (N,)
+        Array of grid points.
+
+    Returns:
+    - result: jax.numpy.ndarray
+        Array of integrated values.
+    """
+    N = f.shape[0] - 1
+    h = x[1] - x[0]
+
+    # Main computation for Simpson's rule
+    result = (
+        f[0]
+        + f[-1]
+        + 2 * jnp.sum(f[2:N:2], axis=0)
+        + 4 * jnp.sum(f[1:N:2], axis=0)
+    )
+
+    # Multiply by h/3
+    result *= h / 3
+
+    # Adjust if N is odd (last segment)
+    if N % 2 == 0:
+        result -= (
+            (f[-2] + f[-1]) * h / 3
+        )  # Subtract last interval computed in the main sum
+        result += (h / 2) * (
+            (2 * f[-1] + f[-2]) + (f[-1] + f[-2])
+        )  # Trapezoidal rule for the last interval
+
+    return result
+
+
+@jit
+def simpson_nonuniform(f, x):
+    """
+    Numerical integration using Simpson's rule on a non-uniform grid.
+
+    This fully vectorized implementation is suitable for multi-dimensional
+    arrays, integrating over the first axis. Assumes non-uniformly spaced grid
+    points.
+
+    Parameters:
+    - f (jax.numpy.ndarray): Array of function values, shape (N, ...).
+    - x (jax.numpy.ndarray): Array of grid points, shape (N,) or same as 'f'.
+
+    Returns:
+    - jax.numpy.ndarray: Integrated values.
+    """
+
+    N = len(x) - 1
+    h = jnp.diff(x, axis=0)  # Differences between consecutive x values
+    f_shape = f.shape
+
+    # Adjusting shape for broadcasting if necessary
+    if x.shape != f_shape:
+        broadcast_shape = (-1,) + (1,) * (len(f_shape) - 1)
+        h0 = h[:-1:2].reshape(broadcast_shape)
+        h1 = h[1::2].reshape(broadcast_shape)
+    else:
+        h0 = h[:-1:2]
+        h1 = h[1::2]
+
+    hph = h1 + h0
+    hdh = h1 / h0
+    hmh = h1 * h0
+    result = jnp.sum(
+        (hph / 6)
+        * (
+            (2 - hdh) * f[:-2:2]
+            + (hph**2 / hmh) * f[1:-1:2]
+            + (2 - 1 / hdh) * f[2::2]
+        ),
+        axis=0,
+    )
+
+    # Additional computation for even N (last segment)
+    if N % 2 == 1:
+        h0 = h[-2]
+        h1 = h[-1]
+        result += f[-1] * (2 * h1**2 + 3 * h0 * h1) / (6 * (h0 + h1))
+        result += f[-2] * (h1**2 + 3 * h1 * h0) / (6 * h0)
+        result -= f[-3] * h1**3 / (6 * h0 * (h0 + h1))
+
+    return result

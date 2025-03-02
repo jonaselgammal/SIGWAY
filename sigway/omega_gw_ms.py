@@ -4,7 +4,7 @@ import jax.numpy as jnp
 
 # Local
 from sigway.ms_solver import SingleFieldSolver
-from sigway.omega_gw_jax import OmegaGWjax, u, v
+from sigway.omega_gw_jax import OmegaGWjax, get_u, get_v
 
 
 jax.config.update("jax_enable_x64", True)
@@ -131,8 +131,8 @@ class OmegaGWms(OmegaGWjax):
         if self.P_zeta.k is None or not self.P_zeta.upsample:
             uv = jnp.array(
                 [
-                    u(t[None, :, :], s[:, None, None]),
-                    v(t[None, :, :], s[:, None, None]),
+                    get_u(t[None, :, :], s[:, None, None]),
+                    get_v(t[None, :, :], s[:, None, None]),
                 ]
             )
             mink = jnp.min(kvec) * jnp.min(uv)

@@ -32,7 +32,7 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import LogLocator, NullFormatter, FormatStrFormatter
 
 # Local
-from sigway.units import (
+from sigway.utils import (
     efolds_from_wavenumber_si_units,
     H_from_wavenumber,
     wavenumber_from_efolds_si_units,

@@ -1,5 +1,8 @@
 from setuptools import setup, find_packages
 
+with open("requirements.txt") as f:
+    required_packages = f.read().splitlines()
+
 setup(
     name="sigway",
     version="0.1",
@@ -12,14 +15,7 @@ setup(
     author="Jonas El Gammal",
     author_email="jonas.el.gammal@rwth-aachen.de",
     license="LGPL",
-    install_requires=[
-        "jax",  # For integrating the loop
-        "jaxlib",  # For numerical operations
-        "diffrax",  # For solving the Mukhanov-Sasaki equation
-        "matplotlib",  # For plots
-        "numpy",  # For numerical operations
-        "scipy",  # For special functions
-    ],
+    install_requires=required_packages,
     classifiers=[
         "Environment :: Console",
         "Intended Audience :: Science/Research",

@@ -2,10 +2,17 @@
 import numpy as np
 from scipy.special import sici
 
-# Local
 import jax
 import jax.numpy as jnp
 from jax import jit, jvp, lax
+
+# Local
+from sigway.utils import (
+    SM_CG_factor,
+    Omega_radiation_h2_today,
+    simpson_uniform,
+    simpson_nonuniform,
+)
 
 jax.config.update("jax_enable_x64", True)
 
@@ -21,15 +28,15 @@ def norm():
     Prefactor in front of the integral for the Tensor power spectrum.
     Is a constant assuming radiation domination.
     """
-    OMEGA_R = 4.2 * 10 ** (-5)
-    CG = 0.39
-    return CG / 12 * OMEGA_R
+
+    return SM_CG_factor / 12 * Omega_radiation_h2_today
 
 
 @jit
-def u(t, s):
+def get_u(t, s):
     """
-    Helper function to translate between u, v and s, t.
+    Helper function to get u from s, t. To get this invert 4.19 of 2501.11320.
+    s should be in [-1,1], t should be in [0, infty].
 
     Parameters:
     - t: jax.numpy.ndarray
@@ -45,9 +52,10 @@ def u(t, s):
 
 
 @jit
-def v(t, s):
+def get_v(t, s):
     """
-    Helper function to translate between u, v and s, t.
+    Helper function to get v from s, t. To get this invert 4.19 of 2501.11320.
+    s should be in [-1,1], t should be in [0, infty].
 
     Parameters:
     - t: jax.numpy.ndarray
@@ -66,6 +74,7 @@ def v(t, s):
 def polynomial(t, s):
     """
     Polynomial term in the integrand for the Tensor power spectrum.
+    See 4.20 of 2501.11320.
     Note that this term is k-independent.
 
     Parameters:
@@ -78,6 +87,7 @@ def polynomial(t, s):
     - jax.numpy.ndarray
         Array of polynomial values.
     """
+
     return 2 * ((t * (2 + t) * (s**2 - 1)) / ((1 - s + t) * (1 + s + t))) ** 2
 
 
@@ -206,7 +216,7 @@ def _d_sici_precomp(x):
 # Transition from an early matter dominated era to the RD era,
 # the u ~ v >> 1 contribution, i.e. large t
 @jit
-def I_sq_IRD_LV(t, s, k, kmax, etaR):
+def I_sq_IRD_Lget_V(t, s, k, kmax, etaR):
     r"""
     :math:`overline{I^2_{\rm IRD, LV}(t, s, k, k_{\rm max}, \eta_R)}` for the
     large V contribution to the transitioning kernel from an early matter
@@ -252,7 +262,7 @@ def I_sq_IRD_LV(t, s, k, kmax, etaR):
 
 
 @jit
-def d_I_sq_IRD_LV(index, t, s, k, kmax, etaR):
+def d_I_sq_IRD_Lget_V(index, t, s, k, kmax, etaR):
     """
     Compute the analytical gradient of the large V contribution to the
     transitioning kernel with respect to `kmax` or `etaR` based on `idx`.
@@ -280,7 +290,7 @@ def d_I_sq_IRD_LV(index, t, s, k, kmax, etaR):
     - jax.numpy.ndarray
         Array of gradient values.
     """
-    result = I_sq_IRD_LV(t, s, k, kmax, etaR)
+    result = I_sq_IRD_Lget_V(t, s, k, kmax, etaR)
     xR = k * etaR
     grad_etaR = k * (_d_sici_precomp(xR) / _sici_precomp(xR) + 8 / xR) * result
     # The gradient w.r.t anyting but etaR is zero
@@ -366,103 +376,6 @@ def d_I_sq_IRD_res(index, t, s, k, kmax, etaR):
     )
 
 
-@jit
-def simpson_uniform(f, x):
-    """
-    Fully vectorized implementation of Simpson's rule for a uniform grid.
-    If f is a multi-dimensional array, the integration is performed over the
-    first axis.
-
-    Parameters:
-    - f: jax.numpy.ndarray, shape (N, ...)
-        Array of function values. Integration is performed over the first axis.
-    - x: jax.numpy.ndarray, shape (N,)
-        Array of grid points.
-
-    Returns:
-    - result: jax.numpy.ndarray
-        Array of integrated values.
-    """
-    N = f.shape[0] - 1
-    h = x[1] - x[0]
-
-    # Main computation for Simpson's rule
-    result = (
-        f[0]
-        + f[-1]
-        + 2 * jnp.sum(f[2:N:2], axis=0)
-        + 4 * jnp.sum(f[1:N:2], axis=0)
-    )
-
-    # Multiply by h/3
-    result *= h / 3
-
-    # Adjust if N is odd (last segment)
-    if N % 2 == 0:
-        result -= (
-            (f[-2] + f[-1]) * h / 3
-        )  # Subtract last interval computed in the main sum
-        result += (h / 2) * (
-            (2 * f[-1] + f[-2]) + (f[-1] + f[-2])
-        )  # Trapezoidal rule for the last interval
-
-    return result
-
-
-@jit
-def simpson_nonuniform(f, x):
-    """
-    Numerical integration using Simpson's rule on a non-uniform grid.
-
-    This fully vectorized implementation is suitable for multi-dimensional
-    arrays, integrating over the first axis. Assumes non-uniformly spaced grid
-    points.
-
-    Parameters:
-    - f (jax.numpy.ndarray): Array of function values, shape (N, ...).
-    - x (jax.numpy.ndarray): Array of grid points, shape (N,) or same as 'f'.
-
-    Returns:
-    - jax.numpy.ndarray: Integrated values.
-    """
-
-    N = len(x) - 1
-    h = jnp.diff(x, axis=0)  # Differences between consecutive x values
-    f_shape = f.shape
-
-    # Adjusting shape for broadcasting if necessary
-    if x.shape != f_shape:
-        broadcast_shape = (-1,) + (1,) * (len(f_shape) - 1)
-        h0 = h[:-1:2].reshape(broadcast_shape)
-        h1 = h[1::2].reshape(broadcast_shape)
-    else:
-        h0 = h[:-1:2]
-        h1 = h[1::2]
-
-    hph = h1 + h0
-    hdh = h1 / h0
-    hmh = h1 * h0
-    result = jnp.sum(
-        (hph / 6)
-        * (
-            (2 - hdh) * f[:-2:2]
-            + (hph**2 / hmh) * f[1:-1:2]
-            + (2 - 1 / hdh) * f[2::2]
-        ),
-        axis=0,
-    )
-
-    # Additional computation for even N (last segment)
-    if N % 2 == 1:
-        h0 = h[-2]
-        h1 = h[-1]
-        result += f[-1] * (2 * h1**2 + 3 * h0 * h1) / (6 * (h0 + h1))
-        result += f[-2] * (h1**2 + 3 * h1 * h0) / (6 * h0)
-        result -= f[-3] * h1**3 / (6 * h0 * (h0 + h1))
-
-    return result
-
-
 def integrand(P_zeta, kernel, s, t, k, *params):
     """
     Integrand for the non-transitioning kernels.
@@ -481,11 +394,15 @@ def integrand(P_zeta, kernel, s, t, k, *params):
     - params: tuple
         Tuple of parameters for the P_zeta function.
     """
+
+    u = get_u(t, s)
+    v = get_v(t, s)
+
     return (
         kernel(t, s, k)
         * polynomial(t, s)
-        * P_zeta(k * u(t, s), *params)
-        * P_zeta(k * v(t, s), *params)
+        * P_zeta(k * u, *params)
+        * P_zeta(k * v, *params)
     )
 
 
@@ -513,11 +430,15 @@ def integrand_transitioning_kernel(P_zeta, kernel, s, t, k, *params):
     """
     kmax = params[-2]
     etaR = params[-1]
+
+    u = get_u(t, s)
+    v = get_v(t, s)
+
     return (
         kernel(t, s, k, kmax, etaR)
         * polynomial(t, s)
-        * P_zeta(k * u(t, s), *params)
-        * P_zeta(k * v(t, s), *params)
+        * P_zeta(k * u, *params)
+        * P_zeta(k * v, *params)
     )
 
 
@@ -554,14 +475,16 @@ def d_integrand(index, P_zeta, dP_zeta, kernel, s, t, k, *params):
     - jax.numpy.ndarray
         Array of integrand values.
     """
+
+    k_u = k * get_u(t, s)
+    k_v = k * get_v(t, s)
+
     return (
         kernel(t, s, k)
         * polynomial(t, s)
         * (
-            P_zeta(k * u(t, s), *params)
-            * dP_zeta(P_zeta, index, k * v(t, s), *params)
-            + dP_zeta(P_zeta, index, k * u(t, s), *params)
-            * P_zeta(k * v(t, s), *params)
+            P_zeta(k_u, *params) * dP_zeta(P_zeta, index, k_v, *params)
+            + dP_zeta(P_zeta, index, k_u, *params) * P_zeta(k_v, *params)
         )
     )
 
@@ -598,15 +521,17 @@ def d_integrand_transitioning_kernel(
     """
     kmax = params[-2]
     etaR = params[-1]
+
+    k_u = k * get_u(t, s)
+    k_v = k * get_v(t, s)
+
     # Standard derivative except for etaR
     term1 = (
         kernel(t, s, k, kmax, etaR)
         * polynomial(t, s)
         * (
-            P_zeta(k * u(t, s), *params)
-            * dP_zeta(P_zeta, index, k * v(t, s), *params)
-            + dP_zeta(P_zeta, index, k * u(t, s), *params)
-            * P_zeta(k * v(t, s), *params)
+            P_zeta(k_u, *params) * dP_zeta(P_zeta, index, k_v, *params)
+            + dP_zeta(P_zeta, index, k_u, *params) * P_zeta(k_v, *params)
         )
     )
     if index != len(params) - 1:
@@ -616,8 +541,8 @@ def d_integrand_transitioning_kernel(
         term2 = (
             d_kernel(1, t, s, k, kmax, etaR)
             * polynomial(t, s)
-            * P_zeta(k * u(t, s), *params)
-            * P_zeta(k * v(t, s), *params)
+            * P_zeta(k_u, *params)
+            * P_zeta(k_v, *params)
         )
         return term1 + term2
 
@@ -654,22 +579,25 @@ def d_integrand_transitioning_kernel_delta(
     """
     kmax = params[-2]
     etaR = params[-1]
+
+    u = get_u(t, s)
+    v = get_v(t, s)
+
     # First term containing the derivatives of P_zeta
     if index == len(params) - 2:
         term1 = (
             kernel(t, s, k, kmax, etaR)
             * polynomial(t, s)
-            * dP_zeta(P_zeta, index, k * v(t, s), *params) ** 2.0
+            * dP_zeta(P_zeta, index, k * v, *params) ** 2.0
         )
     else:
         term1 = (
             kernel(t, s, k, kmax, etaR)
             * polynomial(t, s)
             * (
-                P_zeta(k * u(t, s), *params)
-                * dP_zeta(P_zeta, index, k * v(t, s), *params)
-                + dP_zeta(P_zeta, index, k * u(t, s), *params)
-                * P_zeta(k * v(t, s), *params)
+                P_zeta(k * u, *params) * dP_zeta(P_zeta, index, k * v, *params)
+                + dP_zeta(P_zeta, index, k * u, *params)
+                * P_zeta(k * v, *params)
             )
         )
     if index != len(params) - 1:
@@ -679,8 +607,8 @@ def d_integrand_transitioning_kernel_delta(
         term2 = (
             d_kernel(1, t, s, k, kmax, etaR)
             * polynomial(t, s)
-            * P_zeta(k * u(t, s), *params)
-            * P_zeta(k * v(t, s), *params)
+            * P_zeta(k * u, *params)
+            * P_zeta(k * v, *params)
         )
         return term1 + term2
 
@@ -1202,7 +1130,7 @@ class OmegaGWjax:
             t1 = (
                 -kvec[None, :] + 2 * kmax - kvec[None, :] * s[:, None]
             ) / kvec[None, :]
-            lV_values = I_sq_IRD_LV(
+            lV_values = I_sq_IRD_Lget_V(
                 t1, s[:, None], kvec[None, :], kmax, etaR
             ) * polynomial(t1, s[:, None])
             lV_values = lV_values * jnp.where(
