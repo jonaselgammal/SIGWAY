@@ -216,7 +216,7 @@ def _d_sici_precomp(x):
 # Transition from an early matter dominated era to the RD era,
 # the u ~ v >> 1 contribution, i.e. large t
 @jit
-def I_sq_IRD_Lget_V(t, s, k, kmax, etaR):
+def I_sq_IRD_LV(t, s, k, kmax, etaR):
     r"""
     :math:`overline{I^2_{\rm IRD, LV}(t, s, k, k_{\rm max}, \eta_R)}` for the
     large V contribution to the transitioning kernel from an early matter
@@ -262,7 +262,7 @@ def I_sq_IRD_Lget_V(t, s, k, kmax, etaR):
 
 
 @jit
-def d_I_sq_IRD_Lget_V(index, t, s, k, kmax, etaR):
+def d_I_sq_IRD_LV(index, t, s, k, kmax, etaR):
     """
     Compute the analytical gradient of the large V contribution to the
     transitioning kernel with respect to `kmax` or `etaR` based on `idx`.
@@ -290,7 +290,7 @@ def d_I_sq_IRD_Lget_V(index, t, s, k, kmax, etaR):
     - jax.numpy.ndarray
         Array of gradient values.
     """
-    result = I_sq_IRD_Lget_V(t, s, k, kmax, etaR)
+    result = I_sq_IRD_LV(t, s, k, kmax, etaR)
     xR = k * etaR
     grad_etaR = k * (_d_sici_precomp(xR) / _sici_precomp(xR) + 8 / xR) * result
     # The gradient w.r.t anyting but etaR is zero
@@ -1130,7 +1130,7 @@ class OmegaGWjax:
             t1 = (
                 -kvec[None, :] + 2 * kmax - kvec[None, :] * s[:, None]
             ) / kvec[None, :]
-            lV_values = I_sq_IRD_Lget_V(
+            lV_values = I_sq_IRD_LV(
                 t1, s[:, None], kvec[None, :], kmax, etaR
             ) * polynomial(t1, s[:, None])
             lV_values = lV_values * jnp.where(
