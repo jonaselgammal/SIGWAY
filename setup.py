@@ -14,6 +14,7 @@ setup(
     license="LGPL",
     install_requires=[
         "jax",  # For integrating the loop
+        "jaxlib",  # For numerical operations
         "diffrax",  # For solving the Mukhanov-Sasaki equation
         "matplotlib",  # For plots
         "numpy",  # For numerical operations
