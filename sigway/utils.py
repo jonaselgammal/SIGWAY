@@ -124,6 +124,7 @@ def H_from_wavenumber(k, N, H, N_CMB, H_CMB):
 def simpson_uniform(f, x):
     """
     Fully vectorized implementation of Simpson's rule for a uniform grid.
+    See composite 1/3 rule in https://en.wikipedia.org/wiki/Simpson%27s_rule.
     If f is a multi-dimensional array, the integration is performed over the
     first axis.
 
@@ -137,29 +138,32 @@ def simpson_uniform(f, x):
     - result: jax.numpy.ndarray
         Array of integrated values.
     """
+    # number of subintervals used in the integration
     N = f.shape[0] - 1
+
+    # step size
     h = x[1] - x[0]
 
-    # Main computation for Simpson's rule
+    # step in the sum over i
+    step = 2
+
+    # Simpson's rule
     result = (
         f[0]
+        + 4 * jnp.sum(f[1:N:step], axis=0)
+        + 2 * jnp.sum(f[2:N:step], axis=0)
         + f[-1]
-        + 2 * jnp.sum(f[2:N:2], axis=0)
-        + 4 * jnp.sum(f[1:N:2], axis=0)
     )
 
-    # Multiply by h/3
+    # Multiply by h/3 to get the final result
     result *= h / 3
 
-    # Adjust if N is odd (last segment)
-    if N % 2 == 0:
-        result -= (
-            (f[-2] + f[-1]) * h / 3
-        )  # Subtract last interval computed in the main sum
-        result += (h / 2) * (
-            (2 * f[-1] + f[-2]) + (f[-1] + f[-2])
-        )  # Trapezoidal rule for the last interval
-
+    # # Adjust if N is odd (last segment)
+    if N % 2 == 1:
+        # Subtract last interval computed in the main sum
+        result -= (h / 3) * (f[-2] + f[-1])
+        # Trapezoidal rule for the last interval
+        result += (h / 2) * ((2 * f[-1] + f[-2]) + (f[-1] + f[-2]))
     return result
 
 
@@ -167,6 +171,9 @@ def simpson_uniform(f, x):
 def simpson_nonuniform(f, x):
     """
     Numerical integration using Simpson's rule on a non-uniform grid.
+
+    See composite 1/3 rule for irregularly spaced data in
+    https://en.wikipedia.org/wiki/Simpson%27s_rule.
 
     This fully vectorized implementation is suitable for multi-dimensional
     arrays, integrating over the first axis. Assumes non-uniformly spaced grid
@@ -180,18 +187,26 @@ def simpson_nonuniform(f, x):
     - jax.numpy.ndarray: Integrated values.
     """
 
+    # Number of subintervals
     N = len(x) - 1
-    h = jnp.diff(x, axis=0)  # Differences between consecutive x values
+
+    # Differences between consecutive x values
+    h = jnp.diff(x, axis=0)
+
+    # get the shape of f
     f_shape = f.shape
+
+    # Step size in the sum over i
+    step = 2
 
     # Adjusting shape for broadcasting if necessary
     if x.shape != f_shape:
         broadcast_shape = (-1,) + (1,) * (len(f_shape) - 1)
-        h0 = h[:-1:2].reshape(broadcast_shape)
-        h1 = h[1::2].reshape(broadcast_shape)
+        h0 = h[:-1:step].reshape(broadcast_shape)
+        h1 = h[1::step].reshape(broadcast_shape)
     else:
-        h0 = h[:-1:2]
-        h1 = h[1::2]
+        h0 = h[:-1:step]
+        h1 = h[1::step]
 
     hph = h1 + h0
     hdh = h1 / h0
@@ -199,9 +214,9 @@ def simpson_nonuniform(f, x):
     result = jnp.sum(
         (hph / 6)
         * (
-            (2 - hdh) * f[:-2:2]
-            + (hph**2 / hmh) * f[1:-1:2]
-            + (2 - 1 / hdh) * f[2::2]
+            (2 - hdh) * f[:-2:step]
+            + (hph**2 / hmh) * f[1:-1:step]
+            + (2 - 1 / hdh) * f[2::step]
         ),
         axis=0,
     )

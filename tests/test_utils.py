@@ -2,6 +2,8 @@
 import os
 import unittest
 import numpy as np
+import jax.numpy as jnp
+from scipy.integrate import simpson
 
 # Local
 from sigway import utils as ut
@@ -60,6 +62,64 @@ class TestUnits(unittest.TestCase):
 
         # check that the output is correct
         self.assertEqual(np.sum(1 - H_k / HH), 0.0)
+
+    def test_simpson_uniform(self):
+        """
+        Test the function simpson_uniform from utils.py.
+        """
+
+        # check with even number of points
+        x1 = jnp.linspace(0.0, 1.0, 100)
+        y1 = x1**2
+
+        res_1 = simpson(y1, x=x1)
+        res_2 = ut.simpson_uniform(y1, x1)
+
+        print(len(x1), res_1, res_2)
+
+        # check that the output is correct
+        self.assertAlmostEqual(res_1 / res_2, 1.0, places=15)
+
+        # check with odd number of points
+        x1 = jnp.linspace(0.0, 1.0, 101)
+        y1 = x1**3
+
+        res_1 = simpson(y1, x=x1)
+        res_2 = ut.simpson_uniform(y1, x1)
+
+        print(len(x1), res_1, res_2)
+
+        # check that the output is correct
+        self.assertAlmostEqual(res_1 / res_2, 1.0, places=15)
+
+    def test_simpson_nonuniform(self):
+        """
+        Test the function simpson_nonuniform from utils.py.
+        """
+
+        # check with even number of points
+        x1 = jnp.geomspace(1.0, 10.0, 100)
+        y1 = x1**2
+
+        res_1 = simpson(y1, x=x1)
+        res_2 = ut.simpson_nonuniform(y1, x1)
+
+        print(len(x1), res_1, res_2)
+
+        # check that the output is correct
+        self.assertAlmostEqual(res_1 / res_2, 1.0, places=15)
+
+        # check with odd number of points
+        x1 = jnp.geomspace(1.0, 10.0, 101)
+        y1 = x1**3
+
+        res_1 = simpson(y1, x=x1)
+        res_2 = ut.simpson_nonuniform(y1, x1)
+
+        print(len(x1), res_1, res_2)
+
+        # check that the output is correct
+        self.assertAlmostEqual(res_1 / res_2, 1.0, places=15)
 
 
 if __name__ == "__main__":
