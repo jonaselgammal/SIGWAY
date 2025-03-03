@@ -126,7 +126,11 @@ def simpson_uniform(f, x):
     Fully vectorized implementation of Simpson's rule for a uniform grid.
     See composite 1/3 rule in https://en.wikipedia.org/wiki/Simpson%27s_rule.
     If f is a multi-dimensional array, the integration is performed over the
-    first axis.
+    first axis. If the length of x is even (odd number of intervals), the
+    last interval is calculated with 
+    https://en.wikipedia.org/wiki/Simpson%27s_rule#Composite_Simpson's_rule_for_irregularly_spaced_data.
+    For performance reasons, this function does not check whether the grid is
+    actually uniform.
 
     Parameters:
     - f: jax.numpy.ndarray, shape (N, ...)
@@ -138,34 +142,28 @@ def simpson_uniform(f, x):
     - result: jax.numpy.ndarray
         Array of integrated values.
     """
-    # number of subintervals used in the integration
+    # Number of intervals
     N = f.shape[0] - 1
 
-    # step size
-    h = x[1] - x[0]
+    # interval spacing
+    h = (x[1] - x[0])
 
-    # step in the sum over i
-    step = 2
+    result = 0
 
-    # Simpson's rule
-    result = (
-        f[0]
-        + 4 * jnp.sum(f[1:N:step], axis=0)
-        + 2 * jnp.sum(f[2:N:step], axis=0)
-        + f[-1]
-    )
-
-    # Multiply by h/3 to get the final result
-    result *= h / 3
-
-    # # Adjust if N is odd (last segment)
+    # Additional computation for odd N (last segment)
     if N % 2 == 1:
-        # Subtract last interval computed in the main sum
-        result -= (h / 3) * (f[-2] + f[-1])
-        # Trapezoidal rule for the last interval
-        result += (h / 2) * ((2 * f[-1] + f[-2]) + (f[-1] + f[-2]))
-    return result
+        result += h* (f[-1] * 5/12 + f[-2] * 2/3 - f[-3] * 1/12)
+        N -= 1  # Reduce by one to make it even
 
+    # Compute Simpson's rule integral
+    result += (
+        f[0]
+        + 4 * jnp.sum(f[1:N:2], axis=0)
+        + 2 * jnp.sum(f[2:N-1:2], axis=0)
+        + f[N]
+    ) * (h / 3)
+
+    return result
 
 @jit
 def simpson_nonuniform(f, x):
