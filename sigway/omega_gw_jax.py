@@ -93,10 +93,28 @@ def polynomial(t, s):
 
 # Radiation domination all the way
 @jit
+def I_sq_RD_uv(t, s, k):
+    r"""
+    whatever here
+    """
+    u = get_u(t, s)
+    v = get_v(t, s)
+
+    # Add 4.21, 4.22 of 2501.11320 here
+    I_sq = 0
+
+    return I_sq
+
+
+# Radiation domination all the way
+@jit
 def I_sq_RD(t, s, k):
     r"""
     :math:`overline{I^2_{RD}(t, s, x\\to\\infty)}` assuming radiation
     domination. Note that this term is k-independent.
+
+    This function is written explicitly in terms of t and s.
+    The output of this function matches with the output of I_sq_RD_uv, which is consistent with eq. 4.21, 4.22 of 2501.11320.
 
     Parameters:
     - t: jax.numpy.ndarray
@@ -110,6 +128,9 @@ def I_sq_RD(t, s, k):
     - jax.numpy.ndarray
         Array of :math:`overline{I^2_{RD}(t, s, x\\to\\infty)}` values.
     """
+
+    ### Why is this in terms of t and s and not u, v?
+    ### To be changed
     prefactor = (
         288
         * (-5 + s**2 + t * (2 + t)) ** 2
