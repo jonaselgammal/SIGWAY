@@ -1,7 +1,9 @@
-# Local
+# Global
+from functools import partial
+
 import jax
-from jax import numpy as jnp
 from jax import jit
+from jax import numpy as jnp
 
 jax.config.update("jax_enable_x64", True)
 
@@ -119,7 +121,48 @@ def H_from_wavenumber(k, N, H, N_CMB, H_CMB):
     return H_k
 
 
-# Utils for integration
+# Util for simpson integration
+@jax.jit
+def simpson_uniform_even(f, h):
+    """
+    Auxiliary function to compute simpson for an even number of intervals
+    """
+
+    # Number of intervals
+    N = f.shape[0] - 1
+
+    return (
+        f[0]
+        + 4 * jnp.sum(f[1:N:2], axis=0)
+        + 2 * jnp.sum(f[2 : N - 1 : 2], axis=0)
+        + f[N]
+    ) * (h / 3)
+
+
+# Util for simpson integration
+@jax.jit
+def simpson_uniform_odd(f, h):
+    """
+    Auxiliary function to compute simpson for an odd number of intervals
+    """
+
+    # factor to adjust the last interval
+    result = h * (f[-1] * 5 / 12 + f[-2] * 2 / 3 - f[-3] * 1 / 12)
+
+    # Number of intervals (reduced by one to make it even)
+    N = f.shape[0] - 2
+
+    return result + (
+        f[0]
+        + 4 * jnp.sum(f[1:N:2], axis=0)
+        + 2 * jnp.sum(f[2 : N - 1 : 2], axis=0)
+        + f[N]
+    ) * (h / 3)
+
+
+simpson_uniform_fun_list = [simpson_uniform_even, simpson_uniform_odd]
+
+
 @jit
 def simpson_uniform(f, x):
     """
@@ -127,7 +170,7 @@ def simpson_uniform(f, x):
     See composite 1/3 rule in https://en.wikipedia.org/wiki/Simpson%27s_rule.
     If f is a multi-dimensional array, the integration is performed over the
     first axis. If the length of x is even (odd number of intervals), the
-    last interval is calculated with 
+    last interval is calculated with
     https://en.wikipedia.org/wiki/Simpson%27s_rule#Composite_Simpson's_rule_for_irregularly_spaced_data.
     For performance reasons, this function does not check whether the grid is
     actually uniform.
@@ -146,24 +189,53 @@ def simpson_uniform(f, x):
     N = f.shape[0] - 1
 
     # interval spacing
-    h = (x[1] - x[0])
+    h = jnp.array([x[1] - x[0]])
 
-    result = 0
-
-    # Additional computation for odd N (last segment)
-    if N % 2 == 1:
-        result += h* (f[-1] * 5/12 + f[-2] * 2/3 - f[-3] * 1/12)
-        N -= 1  # Reduce by one to make it even
-
-    # Compute Simpson's rule integral
-    result += (
-        f[0]
-        + 4 * jnp.sum(f[1:N:2], axis=0)
-        + 2 * jnp.sum(f[2:N-1:2], axis=0)
-        + f[N]
-    ) * (h / 3)
+    # choose the different branch
+    result = jax.lax.switch((N % 2), simpson_uniform_fun_list, f, h)
 
     return result
+
+
+def no_broadcasting(f, h):
+    step = 2
+
+    h0 = h[:-1:step]
+    h1 = h[1::step]
+
+    return h0, h1
+
+
+def do_broadcasting(f, h):
+    step = 2
+
+    broadcast_shape = (-1,) + (1,) * (len(f.shape) - 1)
+
+    h0 = h[:-1:step].reshape(broadcast_shape)
+    h1 = h[1::step].reshape(broadcast_shape)
+
+    return h0, h1
+
+
+broadcasting_list = [no_broadcasting, do_broadcasting]
+
+
+def simpson_nonuniform_even(f, h, result):
+    return result
+
+
+def simpson_nonuniform_odd(f, h, result):
+    h0 = h[-2]
+    h1 = h[-1]
+    result += f[-1] * (2 * h1**2 + 3 * h0 * h1) / (6 * (h0 + h1))
+    result += f[-2] * (h1**2 + 3 * h1 * h0) / (6 * h0)
+    result -= f[-3] * h1**3 / (6 * h0 * (h0 + h1))
+
+    return result
+
+
+simpson_nonuniform_list = [simpson_nonuniform_even, simpson_nonuniform_odd]
+
 
 @jit
 def simpson_nonuniform(f, x):
@@ -198,17 +270,13 @@ def simpson_nonuniform(f, x):
     step = 2
 
     # Adjusting shape for broadcasting if necessary
-    if x.shape != f_shape:
-        broadcast_shape = (-1,) + (1,) * (len(f_shape) - 1)
-        h0 = h[:-1:step].reshape(broadcast_shape)
-        h1 = h[1::step].reshape(broadcast_shape)
-    else:
-        h0 = h[:-1:step]
-        h1 = h[1::step]
+    h0, h1 = jax.lax.switch(int(x.shape != f_shape), broadcasting_list, f, h)
 
     hph = h1 + h0
     hdh = h1 / h0
     hmh = h1 * h0
+
+    # get the result
     result = jnp.sum(
         (hph / 6)
         * (
@@ -219,12 +287,5 @@ def simpson_nonuniform(f, x):
         axis=0,
     )
 
-    # Additional computation for even N (last segment)
-    if N % 2 == 1:
-        h0 = h[-2]
-        h1 = h[-1]
-        result += f[-1] * (2 * h1**2 + 3 * h0 * h1) / (6 * (h0 + h1))
-        result += f[-2] * (h1**2 + 3 * h1 * h0) / (6 * h0)
-        result -= f[-3] * h1**3 / (6 * h0 * (h0 + h1))
-
-    return result
+    # # Additional computation for even N (last segment) if necessary
+    return jax.lax.switch((N % 2), simpson_nonuniform_list, f, h, result)
