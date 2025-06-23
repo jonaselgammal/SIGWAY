@@ -31,7 +31,7 @@ class TestUnits(unittest.TestCase):
         uu = og.get_u(t[:, None], s[None, :])
 
         # check that the output is correct
-        self.assertEqual(np.sum(u - u), 0.0)
+        self.assertEqual(np.sum(u - uu), 0.0)
 
     def test_get_v(self):
         """
@@ -43,7 +43,7 @@ class TestUnits(unittest.TestCase):
         vv = og.get_v(t[:, None], s[None, :])
 
         # check that the output is correct
-        self.assertEqual(np.sum(v - v), 0.0)
+        self.assertEqual(np.sum(v - vv), 0.0)
 
     def test_polynomial(self):
         """
