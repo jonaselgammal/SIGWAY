@@ -17,13 +17,14 @@ test_data = np.load(
 s = test_data["s"]
 t = test_data["t"]
 u, v, pol = test_data["data_1"]
+I_sq_RD = test_data["I_sq_RD"]
 
 
 class TestUnits(unittest.TestCase):
 
     def test_get_u(self):
         """
-        Test the function get_u from units.py.
+        Test the function get_u from omega_gw_jax.py.
 
         """
 
@@ -35,7 +36,7 @@ class TestUnits(unittest.TestCase):
 
     def test_get_v(self):
         """
-        Test the function get_v from units.py.
+        Test the function get_v from omega_gw_jax.py.
 
         """
 
@@ -47,7 +48,7 @@ class TestUnits(unittest.TestCase):
 
     def test_polynomial(self):
         """
-        Test the function polynomial from units.py.
+        Test the function polynomial from omega_gw_jax.py.
         """
 
         # compute pol from some values of s and t
@@ -55,6 +56,31 @@ class TestUnits(unittest.TestCase):
 
         # check that the output is correct
         self.assertEqual(np.sum(pol - polynomial), 0.0)
+
+    def test_I_sq_RD(self):
+        """
+        Test the function I_sq_RD from omega_gw_jax.py.
+        """
+        # compute pol from some values of s and t
+        I_sq_RD_v = og.I_sq_RD(t[:, None], s[None, :], k=1.0)
+
+        # check that the output is correct
+        self.assertEqual(np.sum(I_sq_RD_v - I_sq_RD), 0.0)
+
+    def test_I_sq_RD_vs_uv(self):
+        """
+        Test that the two function I_sq_RD and I_sq_RD_uv give the same output
+        (up to numerical precision) in a reasonable range for t.
+        """
+        tt = np.geomspace(0.01, 100, 10)
+
+        # compute I_sq_RD from some values of s and t
+        I_sq_RD = og.I_sq_RD(tt[:, None], s[None, :], k=1.0)
+
+        I_sq_RD_2 = og.I_sq_RD_uv(tt[:, None], s[None, :], k=1.0)
+
+        # check that the output is correct
+        self.assertAlmostEqual(np.sum(I_sq_RD / I_sq_RD_2 - 1), 0.0, places=7)
 
 
 if __name__ == "__main__":

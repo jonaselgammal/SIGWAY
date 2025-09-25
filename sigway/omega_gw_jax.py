@@ -29,7 +29,7 @@ def norm():
     Is a constant assuming radiation domination.
     """
 
-    return SM_CG_factor / 12 * Omega_radiation_h2_today
+    return SM_CG_factor / 12.0 * Omega_radiation_h2_today
 
 
 @jit
@@ -48,7 +48,7 @@ def get_u(t, s):
     - jax.numpy.ndarray
         Array of u values.
     """
-    return (t + s + 1) / 2
+    return (t + s + 1.0) / 2.0
 
 
 @jit
@@ -67,7 +67,7 @@ def get_v(t, s):
     - jax.numpy.ndarray
         Array of v values.
     """
-    return (t - s + 1) / 2
+    return (t - s + 1.0) / 2.0
 
 
 @jit
@@ -88,22 +88,50 @@ def polynomial(t, s):
         Array of polynomial values.
     """
 
-    return 2 * ((t * (2 + t) * (s**2 - 1)) / ((1 - s + t) * (1 + s + t))) ** 2
+    numerator = t * (2.0 + t) * (s**2 - 1.0)
+    denominator = (1.0 - s + t) * (1.0 + s + t)
+
+    return 2.0 * (numerator / denominator) ** 2
 
 
 # Radiation domination all the way
 @jit
 def I_sq_RD_uv(t, s, k):
     r"""
-    whatever here
+    :math:`overline{I^2_{RD}(t, s, x\\to\\infty)}` assuming radiation
+    domination. Note that this term is k-independent.
+
+    This function is written in terms of u and v to match eq. 4.21, 4.22 of
+    2501.11320. Notice that this is less stable numerically than I_sq_RD,
+    especially for large values of t! We keep it for testing but for all
+    computations use I_sq_RD.
+
+    Parameters:
+    - t: jax.numpy.ndarray
+        Array of t values.
+    - s: jax.numpy.ndarray
+        Array of s values.
+    - k: jax.numpy.ndarray
+        Array of k values.
+
+    Returns:
+    - jax.numpy.ndarray
+        Array of :math:`overline{I^2_{RD}(t, s, x\\to\\infty)}` values.
     """
     u = get_u(t, s)
     v = get_v(t, s)
 
-    # Add 4.21, 4.22 of 2501.11320 here
-    I_sq = 0
+    # An auxiliary factor used in several places below
+    factor = u**2 + v**2 - 3.0
 
-    return I_sq
+    # These are the terms in 4.22 of 2501.11320
+    IA = 3.0 * factor / (4.0 * u**3 * v**3)
+    IB = -4.0 * u * v + factor * jnp.log(
+        jnp.abs((3.0 - (u + v) ** 2) / ((3.0 - (u - v) ** 2)))
+    )
+    IC = jnp.pi * factor * jnp.heaviside(u + v - jnp.sqrt(3), 1)
+
+    return IA**2 * (IB**2 + IC**2) / 2.0
 
 
 # Radiation domination all the way
@@ -114,7 +142,8 @@ def I_sq_RD(t, s, k):
     domination. Note that this term is k-independent.
 
     This function is written explicitly in terms of t and s.
-    The output of this function matches with the output of I_sq_RD_uv, which is consistent with eq. 4.21, 4.22 of 2501.11320.
+    The output of this function matches with the output of I_sq_RD_uv, which is
+    consistent with eq. 4.21, 4.22 of 2501.11320.
 
     Parameters:
     - t: jax.numpy.ndarray
@@ -129,25 +158,25 @@ def I_sq_RD(t, s, k):
         Array of :math:`overline{I^2_{RD}(t, s, x\\to\\infty)}` values.
     """
 
-    ### Why is this in terms of t and s and not u, v?
-    ### To be changed
+    # Why is this in terms of t and s and not u, v?
+    # To be changed
     prefactor = (
-        288
-        * (-5 + s**2 + t * (2 + t)) ** 2
-        / ((1 - s + t) ** 6 * (1 + s + t) ** 6)
+        288.0
+        * (-5.0 + s**2 + t * (2.0 + t)) ** 2
+        / ((1.0 - s + t) ** 6 * (1.0 + s + t) ** 6)
     )
     log_term = (
-        (-1 + s - t) * (1 + s + t)
+        (-1.0 + s - t) * (1.0 + s + t)
         + (
-            (-5 + s**2 + t * (2 + t))
-            * jnp.log(jnp.abs((-2 + t * (2 + t)) / (3 - s**2)))
+            (-5.0 + s**2 + t * (2.0 + t))
+            * jnp.log(jnp.abs((-2 + t * (2.0 + t)) / (3.0 - s**2)))
         )
         / 2.0
     ) ** 2
     heaviside_term = (
         jnp.pi**2
-        * (-5 + s**2 + t * (2 + t)) ** 2
-        * jnp.heaviside(1 - jnp.sqrt(3) + t, 1)
+        * (-5.0 + s**2 + t * (2.0 + t)) ** 2
+        * jnp.heaviside(1.0 - jnp.sqrt(3.0) + t, 1)
     ) / 4.0
     return prefactor * (log_term + heaviside_term)
 
