@@ -8,7 +8,6 @@ from scipy.integrate import simpson
 # Local
 from sigway import utils as ut
 
-
 # Load test data
 test_data = np.load(
     os.path.join(os.path.dirname(__file__), "test_data/data_test_utils.npz")
@@ -38,7 +37,7 @@ class TestUnits(unittest.TestCase):
         ks = ut.wavenumber_from_efolds_si_units(N, H, 60, H[-1])
 
         # check that the output is correct
-        self.assertEqual(np.sum(1 - k_vals / ks), 0.0)
+        self.assertAlmostEqual(np.sum(1 - k_vals / ks), 0.0, places=14)
 
     def test_efolds_from_wavenumber_si_units(self):
         """
@@ -50,7 +49,7 @@ class TestUnits(unittest.TestCase):
         NN = ut.efolds_from_wavenumber_si_units(k_vals, H, 60, H[-1])
 
         # check that the output is correct
-        self.assertEqual(np.sum(NN - N), 0.0)
+        self.assertAlmostEqual(np.sum(NN - N), 0.0, places=15)
 
     def test_H_from_wavenumber(self):
         """

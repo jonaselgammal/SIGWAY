@@ -138,33 +138,34 @@ def I_sq_RD_uv(t, s, k):
 @jit
 def I_sq_RD(t, s, k):
     r"""
-    :math:`overline{I^2_{RD}(t, s, x\\to\\infty)}` assuming radiation
-    domination. Note that this term is k-independent.
+        :math:`overline{I^2_{RD}(t, s, x\\to\\infty)}` assuming radiation
+        domination. Note that this term is k-independent.
 
-    This function is written explicitly in terms of t and s.
-    The output of this function matches with the output of I_sq_RD_uv, which is
-    consistent with eq. 4.21, 4.22 of 2501.11320.
+        This function is written explicitly in terms of t and s.
+        The output of this function matches with the output of I_sq_RD_uv,
+        which is consistent with eq. 4.21, 4.22 of 2501.11320.
 
-    Parameters:
-    - t: jax.numpy.ndarray
-        Array of t values.
-    - s: jax.numpy.ndarray
-        Array of s values.
-    - k: jax.numpy.ndarray
-        Array of k values.
-
-    Returns:
-    - jax.numpy.ndarray
-        Array of :math:`overline{I^2_{RD}(t, s, x\\to\\infty)}` values.
+        Parameters:
+        - t: jax.numpy.ndarray
+            Array of t values.
+        - s: jax.numpy.ndarray
+            Array of s values.
+        - k: jax.numpy.ndarray
+            Array of k values.
+    w
+        Returns:
+        - jax.numpy.ndarray
+            Array of :math:`overline{I^2_{RD}(t, s, x\\to\\infty)}` values.
     """
 
-    # Why is this in terms of t and s and not u, v?
-    # To be changed
+    # This is IA**2 from eq. 4.21 of 2501.11320
     prefactor = (
         288.0
         * (-5.0 + s**2 + t * (2.0 + t)) ** 2
         / ((1.0 - s + t) ** 6 * (1.0 + s + t) ** 6)
     )
+
+    # This is IB**2 from eq. 4.21 of 2501.11320
     log_term = (
         (-1.0 + s - t) * (1.0 + s + t)
         + (
@@ -173,11 +174,14 @@ def I_sq_RD(t, s, k):
         )
         / 2.0
     ) ** 2
+
+    # This is IC**2 from eq. 4.21 of 2501.11320
     heaviside_term = (
         jnp.pi**2
         * (-5.0 + s**2 + t * (2.0 + t)) ** 2
         * jnp.heaviside(1.0 - jnp.sqrt(3.0) + t, 1)
     ) / 4.0
+
     return prefactor * (log_term + heaviside_term)
 
 
