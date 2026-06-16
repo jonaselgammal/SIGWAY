@@ -1,6 +1,4 @@
 # Global
-from functools import partial
-
 import jax
 from jax import jit
 from jax import numpy as jnp
@@ -269,8 +267,16 @@ def simpson_nonuniform(f, x):
     # Step size in the sum over i
     step = 2
 
-    # Adjusting shape for broadcasting if necessary
-    h0, h1 = jax.lax.switch(int(x.shape != f_shape), broadcasting_list, f, h)
+    # Adjusting shape for broadcasting if necessary.
+    # x.shape and f_shape are static under jit, so this Python conditional is
+    # jit-safe. jax.lax.switch must NOT be used here: its two branches return
+    # arrays of different shapes, which lax.switch forbids (it traces every
+    # branch and requires matching output types). That broke every N-D call
+    # into the integrator; see no_broadcasting / do_broadcasting below.
+    if x.shape != f_shape:
+        h0, h1 = do_broadcasting(f, h)
+    else:
+        h0, h1 = no_broadcasting(f, h)
 
     hph = h1 + h0
     hdh = h1 / h0
