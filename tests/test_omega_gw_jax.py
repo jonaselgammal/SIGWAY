@@ -6,7 +6,6 @@ import numpy as np
 # Local
 from sigway import omega_gw_jax as og
 
-
 # Load test data
 test_data = np.load(
     os.path.join(
@@ -63,8 +62,15 @@ class TestUnits(unittest.TestCase):
         # compute pol from some values of s and t
         I_sq_RD_v = og.I_sq_RD(t[:, None], s[None, :], k=1.0)
 
-        # check that the output is correct
-        self.assertEqual(np.sum(I_sq_RD_v - I_sq_RD), 0.0)
+        # Compare to the stored snapshot with a relative tolerance: the kernel's
+        # log/heaviside make it sensitive to per-version floating-point rounding
+        # (exact equality fails by ~1e-12 on numpy/XLA builds other than the one
+        # the snapshot was generated on). The physics is pinned independently in
+        # test_kernels_rd.py against the textbook closed form.
+        scale = float(np.max(np.abs(I_sq_RD)))
+        self.assertTrue(
+            np.allclose(I_sq_RD_v, I_sq_RD, rtol=1e-7, atol=1e-9 * scale)
+        )
 
     def test_I_sq_RD_vs_uv(self):
         """
