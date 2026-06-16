@@ -1,10 +1,10 @@
 # Global
 import numpy as np
-from scipy.special import sici
 
 import jax
 import jax.numpy as jnp
 from jax import jit, jvp, lax
+from jax.scipy.special import sici
 
 # Local
 from sigway.utils import (
@@ -138,24 +138,24 @@ def I_sq_RD_uv(t, s, k):
 @jit
 def I_sq_RD(t, s, k):
     r"""
-        :math:`overline{I^2_{RD}(t, s, x\\to\\infty)}` assuming radiation
-        domination. Note that this term is k-independent.
+    :math:`overline{I^2_{RD}(t, s, x\\to\\infty)}` assuming radiation
+    domination. Note that this term is k-independent.
 
-        This function is written explicitly in terms of t and s.
-        The output of this function matches with the output of I_sq_RD_uv,
-        which is consistent with eq. 4.21, 4.22 of 2501.11320.
+    This function is written explicitly in terms of t and s.
+    The output of this function matches with the output of I_sq_RD_uv,
+    which is consistent with eq. 4.21, 4.22 of 2501.11320.
 
-        Parameters:
-        - t: jax.numpy.ndarray
-            Array of t values.
-        - s: jax.numpy.ndarray
-            Array of s values.
-        - k: jax.numpy.ndarray
-            Array of k values.
+    Parameters:
+    - t: jax.numpy.ndarray
+        Array of t values.
+    - s: jax.numpy.ndarray
+        Array of s values.
+    - k: jax.numpy.ndarray
+        Array of k values.
 
-        Returns:
-        - jax.numpy.ndarray
-            Array of :math:`overline{I^2_{RD}(t, s, x\\to\\infty)}` values.
+    Returns:
+    - jax.numpy.ndarray
+        Array of :math:`overline{I^2_{RD}(t, s, x\\to\\infty)}` values.
     """
 
     # This is IA**2 from eq. 4.21 of 2501.11320
@@ -211,24 +211,18 @@ def I_sq_MD(t, s, k):
     return 18.0 / 25.0
 
 
-# We precompute the part of the Large V contribution to the early matter
-# domination kernel that contains the Si and Ci trigonometric integrals as
-# there is no jit-able implementation of these functions in jax.
-# These functions should be computed in a large enough range for all reasonable
-# applications but will return jnp.nan for values outside the range.
-
-xvals = jnp.geomspace(1e-5, 1e5, 10000000)
-si, ci = sici(xvals / 2.0)
-cos = jnp.cos(xvals / 2.0)
-sin = jnp.sin(xvals / 2.0)
-LV = jnp.log(4.0 * ci**2.0 + (jnp.pi - 2.0 * si) ** 2)
+# The Large V contribution to the early matter domination kernel contains the
+# Si and Ci trigonometric integrals. These are evaluated directly with
+# jax.scipy.special.sici (jit-able and differentiable; added in jax 0.8), which
+# replaced a 1e7-point interpolation table that was both slower per call and
+# carried a large import-time / memory cost.
 
 
 @jit
 def _sici_precomp(x):
-    """
-    Precomputed term containing Si and Ci functions in the Large V
-    contribution to the transitioning kernel.
+    r"""
+    Term containing Si and Ci functions in the Large V contribution to the
+    transitioning kernel: :math:`4\,Ci(x/2)^2 + (\pi - 2\,Si(x/2))^2`.
 
     Parameters:
     - x: jax.numpy.ndarray
@@ -236,19 +230,18 @@ def _sici_precomp(x):
 
     Returns:
     - jax.numpy.ndarray
-        Array of precomputed values.
+        Array of values.
     """
-    return jnp.exp(jnp.interp(x, xvals, LV, left=jnp.nan, right=jnp.nan))
-
-
-d_LV = 1 / xvals * (8.0 * cos * ci - 4 * sin * (jnp.pi - 2 * si))
+    si, ci = sici(x / 2.0)
+    return 4.0 * ci**2 + (jnp.pi - 2.0 * si) ** 2
 
 
 @jit
 def _d_sici_precomp(x):
     """
-    Derivative of the precomputed term containing Si and Ci functions
-    in the Large V contribution to the transitioning kernel.
+    Derivative with respect to x of :func:`_sici_precomp`. In closed form
+    (using Si'(y) = sin(y)/y, Ci'(y) = cos(y)/y with y = x/2) this is
+    (8 cos(x/2) Ci(x/2) - 4 sin(x/2) (pi - 2 Si(x/2))) / x.
 
     Parameters:
     - x: jax.numpy.ndarray
@@ -258,8 +251,11 @@ def _d_sici_precomp(x):
     - jax.numpy.ndarray
         Array of derivative values.
     """
-    res = jnp.interp(x, xvals, d_LV, left=jnp.nan, right=jnp.nan)
-    return res  # jnp.interp(x, xvals, d_LV, left=jnp.nan, right=jnp.nan)
+    si, ci = sici(x / 2.0)
+    return (
+        8.0 * jnp.cos(x / 2.0) * ci
+        - 4.0 * jnp.sin(x / 2.0) * (jnp.pi - 2.0 * si)
+    ) / x
 
 
 # below are the two main contributions to the transitioning kernel, based on
@@ -747,7 +743,7 @@ class OmegaGWjax:
         to_numpy=False,
         jit=True,
         dP_zeta_has_delta=False,
-        **kwargs
+        **kwargs,
     ):
         # Constants
         OMEGA_R = 4.2 * 10 ** (-5)  # times h^2, otherwise ~ 8* 10**(-5)
@@ -965,7 +961,7 @@ class OmegaGWjax:
             s[:, None, None],
             t[None, :, :],
             kvec[None, None, :],
-            *params
+            *params,
         )
 
         s_integrated = simpson_uniform(integrand_values, s)
@@ -996,7 +992,7 @@ class OmegaGWjax:
             s[:, None, None],
             t[None, :, :],
             kvec[None, None, :],
-            *params
+            *params,
         )
         lV_integrated = simpson_uniform(lV_values, s)
         lV_integrated = simpson_nonuniform(lV_integrated, t)
@@ -1069,7 +1065,7 @@ class OmegaGWjax:
             s[:, None, None],
             t[None, :, :],
             kvec[None, None, :],
-            *params
+            *params,
         )
 
         s_integrated = simpson_uniform(integrand_values, s)
@@ -1115,7 +1111,7 @@ class OmegaGWjax:
                 s[:, None],
                 t,
                 kvec[None, :],
-                *params
+                *params,
             )
             lV_values = lV_values * jnp.where(t >= 0, 1, 0)
             lV_integrated = simpson_uniform(lV_values, s)
@@ -1130,7 +1126,7 @@ class OmegaGWjax:
                 s,
                 t,
                 kvec,
-                *params
+                *params,
             )
             res_values = (
                 res_values
@@ -1151,7 +1147,7 @@ class OmegaGWjax:
                 s[:, None, None],
                 t[None, :, :],
                 kvec[None, None, :],
-                *params
+                *params,
             )
             lV_integrated = simpson_uniform(lV_values, s)
             lV_integrated = simpson_nonuniform(lV_integrated, t)
@@ -1165,7 +1161,7 @@ class OmegaGWjax:
                 s[:, None],
                 t_res,
                 kvec[None, :],
-                *params
+                *params,
             )
             res_integrated = simpson_uniform(res_values, s)
             return lV_integrated + res_integrated
@@ -1228,7 +1224,7 @@ class OmegaGWjax:
             s[:, None, None],
             t[None, :, None],
             k,
-            *params
+            *params,
         )
 
         s_integrated = simpson_uniform(integrand_values, s)
