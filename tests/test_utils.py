@@ -74,8 +74,6 @@ class TestUnits(unittest.TestCase):
         res_1 = simpson(y1, x=x1)
         res_2 = ut.simpson_uniform(y1, x1)
 
-        print(len(x1), res_1, res_2)
-
         # check that the output is correct
         self.assertAlmostEqual(res_1 / res_2, 1.0, places=15)
 
@@ -85,8 +83,6 @@ class TestUnits(unittest.TestCase):
 
         res_1 = simpson(y1, x=x1)
         res_2 = ut.simpson_uniform(y1, x1)
-
-        print(len(x1), res_1, res_2)
 
         # check that the output is correct
         self.assertAlmostEqual(res_1 / res_2, 1.0, places=15)
@@ -103,8 +99,6 @@ class TestUnits(unittest.TestCase):
         res_1 = simpson(y1, x=x1)
         res_2 = ut.simpson_nonuniform(y1, x1)
 
-        print(len(x1), res_1, res_2)
-
         # check that the output is correct
         self.assertAlmostEqual(res_1 / res_2, 1.0, places=15)
 
@@ -115,7 +109,8 @@ class TestUnits(unittest.TestCase):
         res_1 = simpson(y1, x=x1)
         res_2 = ut.simpson_nonuniform(y1, x1)
 
-        print(len(x1), res_1, res_2)
+        # check that the output is correct
+        self.assertAlmostEqual(res_1 / res_2, 1.0, places=15)
 
         # check that the output is correct
         self.assertAlmostEqual(res_1 / res_2, 1.0, places=15)
