@@ -152,7 +152,7 @@ def I_sq_RD(t, s, k):
             Array of s values.
         - k: jax.numpy.ndarray
             Array of k values.
-    w
+
         Returns:
         - jax.numpy.ndarray
             Array of :math:`overline{I^2_{RD}(t, s, x\\to\\infty)}` values.
