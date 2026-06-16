@@ -1,2 +1,48 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sigway"
+version = "0.2"
+description = "A package for computing scalar induced gravitational waves from inflation"
+readme = "README.md"
+# jax >= 0.8 (for jax.scipy.special.sici) requires Python >= 3.11.
+requires-python = ">=3.11"
+license = "LGPL-3.0-or-later"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Jonas El Gammal", email = "jonas.el.gammal@rwth-aachen.de" },
+    { name = "Gabriele Franciolini", email = "gabriele.franciolini@cern.ch" },
+    { name = "Aya Ghaleb", email = "aya-ghaleb@outlook.com" },
+    { name = "Gabriele Perna", email = "gabriele.perna@kbfi.ee" },
+    { name = "Mauro Pieroni", email = "mauro.pieroni@csic.es" },
+]
+dependencies = [
+    "jax>=0.8",     # For integrating the loop; >=0.8 for scipy.special.sici
+    "jaxlib>=0.8",  # For numerical operations
+    "diffrax",      # For solving the Mukhanov-Sasaki equation
+    "matplotlib",   # For plots
+    "numpy",        # For numerical operations
+    "scipy",        # For special functions / interpolation
+]
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Astronomy",
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://github.com/jonaselgammal/SIGWAY"
+Repository = "https://github.com/jonaselgammal/SIGWAY"
+
+[tool.setuptools.packages.find]
+include = ["sigway*"]
+
+[tool.setuptools.package-data]
+sigway = ["binning_coefficients/*.txt", "binning_coefficients/*.h5"]
+
 [tool.black]
 line_length = 80
