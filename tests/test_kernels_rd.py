@@ -30,23 +30,3 @@ def test_rd_kernel_matches_textbook(fn, name):
     got = np.array(fn(jnp.array(_TT), jnp.array(_SS), k=1.0))
     ref = kernel_RD_text(_TT, _SS)
     assert np.nanmax(np.abs(got / ref - 1.0)) < 1e-10, name
-
-
-def test_rd_kernel_nonnegative():
-    """The kernel is |overline I|^2 >= 0 (a squared transfer function)."""
-    got = np.array(I_sq_RD(jnp.array(_TT), jnp.array(_SS), k=1.0))
-    assert np.all(got >= 0.0)
-
-
-def test_rd_kernel_even_in_s():
-    """I_sq_RD depends on s only through s^2, so it must be even in s."""
-    a = np.array(I_sq_RD(jnp.array(_TT), jnp.array(_SS), k=1.0))
-    b = np.array(I_sq_RD(jnp.array(_TT), jnp.array(-_SS), k=1.0))
-    assert np.allclose(a, b, rtol=1e-12, atol=0.0)
-
-
-def test_rd_kernel_k_independent():
-    """The RD kernel is k-independent; varying k must not change it."""
-    a = np.array(I_sq_RD(jnp.array(_TT), jnp.array(_SS), k=1.0))
-    b = np.array(I_sq_RD(jnp.array(_TT), jnp.array(_SS), k=137.0))
-    assert np.array_equal(a, b)

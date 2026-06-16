@@ -53,22 +53,22 @@ def test_lognormal_peak_at_resonance():
     """A narrow log-normal peaks at the resonance k = 2/sqrt(3) k_*.
 
     For a Dirac source the RD spectrum diverges at k = 2 k_*/sqrt(3).
-    A finite (narrow) log-normal peaks just below it; require within 5%, which a
-    >5% drift in peak location would fail.
+    A finite (narrow) log-normal peaks just below it; require within 4e-3
+    which we tested by hand to be fine for a peak with Delta = 1e-2 or sharper.
     """
     cfg = C.ANALYTIC_CONFIGS["lognormal_rd"]
-    p = (-2.0, -1.0, -2.0)  # narrow: logDelta = -1  (Delta = 0.1)
+    p = (-2.0, -2.0, -2.0)  # narrow: logDelta = -1  (Delta = 0.1)
     ks = 10.0 ** p[2]
     kpk_expected = 2.0 / np.sqrt(3.0) * ks
     f = np.geomspace(0.6 * kpk_expected, 1.4 * kpk_expected, 300) / (2 * np.pi)
     m = _model(cfg, f, s=np.linspace(0.0, 1.0, 40))
     og = np.array(m(jnp.array(f), *p))
     k_peak = f[np.argmax(og)] * 2 * np.pi
-    assert abs(k_peak / kpk_expected - 1.0) < 0.05
+    assert abs(k_peak / kpk_expected - 1.0) < 4e-3
 
 
 def test_lognormal_ir_causal_tail():
-    """Deep-IR tail follows the causal law Omega ~ k^3 ln^2(k_*/k).
+    """Deep-IR tail follows the causal law Omega ~ k^3 ln^2(k_*/k) for pure RD.
 
     The local log-log slope is therefore < 3 and *increases* toward 3 as k->0
     (slope = 3 - 2/ln(k_*/k)); a pure power law (or a wrong index like 2 or 4)
@@ -109,7 +109,8 @@ def test_emd_source_cutoff():
     """Flat+cutoff source (k<kmax) yields a GW spectrum suppressed above ~kmax.
 
     The induced spectrum has support up to 2 kmax but, for this flat source,
-    falls steeply past the peak; require Omega(2 kmax)/Omega_peak < 1e-4.
+    falls steeply past the peak; require Omega(2 kmax)/Omega_peak < 1e-7.
+    Basically after that the spectrum should be more or less exact 0.
     """
     cfg = C.ANALYTIC_CONFIGS["emd_imd2rd"]
     As, kmax, etaR = cfg["params"]
@@ -117,4 +118,4 @@ def test_emd_source_cutoff():
     og = np.array(m(jnp.array(cfg["f"]), *cfg["params"]))
     peak = np.nanmax(og)
     f_2kmax = 2 * kmax / (2 * np.pi)
-    assert np.interp(f_2kmax, cfg["f"], og) / peak < 1e-4
+    assert np.interp(f_2kmax, cfg["f"], og) / peak < 1e-7
