@@ -2,7 +2,6 @@
 import os
 import unittest
 import numpy as np
-import test
 
 # Local
 from sigway import omega_gw_jax as og
