@@ -9,11 +9,16 @@ To compare like with like, the end-to-end test uses a *fixed* (s, t) grid so the
 finite difference does not also perturb the integration grid (the analytic
 derivative treats the grid as constant).
 """
+
 import numpy as np
 import jax.numpy as jnp
 
 from sigway.omega_gw_jax import (
-    OmegaGWjax, I_sq_IRD_LV, d_I_sq_IRD_LV, I_sq_IRD_res, d_I_sq_IRD_res,
+    OmegaGWjax,
+    I_sq_IRD_LV,
+    d_I_sq_IRD_LV,
+    I_sq_IRD_res,
+    d_I_sq_IRD_res,
 )
 import _sigway_configs as C
 
@@ -26,8 +31,10 @@ def test_d_I_sq_IRD_LV_wrt_etaR():
     s = jnp.array([0.1, 0.4, 0.7])
     k = 0.02
     h = _ETAR * 1e-6
-    fd = (np.array(I_sq_IRD_LV(t, s, k, _KMAX, _ETAR + h))
-          - np.array(I_sq_IRD_LV(t, s, k, _KMAX, _ETAR - h))) / (2 * h)
+    fd = (
+        np.array(I_sq_IRD_LV(t, s, k, _KMAX, _ETAR + h))
+        - np.array(I_sq_IRD_LV(t, s, k, _KMAX, _ETAR - h))
+    ) / (2 * h)
     ana = np.array(d_I_sq_IRD_LV(1, t, s, k, _KMAX, _ETAR))  # index 1 = etaR
     assert np.allclose(ana, fd, rtol=1e-5)
 
@@ -38,8 +45,10 @@ def test_d_I_sq_IRD_res_wrt_etaR():
     s = jnp.array([0.1, 0.4, 0.7])
     k = 0.02
     h = _ETAR * 1e-6
-    fd = (np.array(I_sq_IRD_res(t, s, k, _KMAX, _ETAR + h))
-          - np.array(I_sq_IRD_res(t, s, k, _KMAX, _ETAR - h))) / (2 * h)
+    fd = (
+        np.array(I_sq_IRD_res(t, s, k, _KMAX, _ETAR + h))
+        - np.array(I_sq_IRD_res(t, s, k, _KMAX, _ETAR - h))
+    ) / (2 * h)
     ana = np.array(d_I_sq_IRD_res(1, t, s, k, _KMAX, _ETAR))
     assert np.allclose(ana, fd, rtol=1e-5)
 
@@ -63,9 +72,17 @@ def test_d_integrate_bpl_matches_finite_difference():
     f = np.geomspace(1e-4, 1e-1, 12)
     # freeze the parameter-dependent t-grid at the fiducial parameters
     t_fixed = cfg["t"](jnp.array(f) * 2 * jnp.pi, *p)
-    m = OmegaGWjax(cfg["pzeta"], jnp.array(cfg["s"]), t_fixed, f=jnp.array(f),
-                   norm="RD", kernel="RD", upsample=False, dP_zeta="auto",
-                   jit=True)
+    m = OmegaGWjax(
+        cfg["pzeta"],
+        jnp.array(cfg["s"]),
+        t_fixed,
+        f=jnp.array(f),
+        norm="RD",
+        kernel="RD",
+        upsample=False,
+        dP_zeta="auto",
+        jit=True,
+    )
     for idx in range(len(p)):
         ana = np.array(m.d_integrate(idx, jnp.array(f), *p))
         h = 1e-5 * max(abs(p[idx]), 1.0)
@@ -73,8 +90,9 @@ def test_d_integrate_bpl_matches_finite_difference():
         pp[idx] += h
         pm = list(p)
         pm[idx] -= h
-        fd = (np.array(m(jnp.array(f), *pp))
-              - np.array(m(jnp.array(f), *pm))) / (2 * h)
+        fd = (
+            np.array(m(jnp.array(f), *pp)) - np.array(m(jnp.array(f), *pm))
+        ) / (2 * h)
         good = np.abs(ana) > np.nanmax(np.abs(ana)) * 1e-6
         assert np.allclose(ana[good], fd[good], rtol=2e-4), f"param {idx}"
 
@@ -85,9 +103,17 @@ def test_amplitude_derivative_closed_form():
     p = list(cfg["params"])
     f = np.geomspace(1e-4, 1e-2, 10)
     t_fixed = cfg["t"](jnp.array(f) * 2 * jnp.pi, *p)
-    m = OmegaGWjax(cfg["pzeta"], jnp.array(cfg["s"]), t_fixed, f=jnp.array(f),
-                   norm="RD", kernel="RD", upsample=False, dP_zeta="auto",
-                   jit=True)
+    m = OmegaGWjax(
+        cfg["pzeta"],
+        jnp.array(cfg["s"]),
+        t_fixed,
+        f=jnp.array(f),
+        norm="RD",
+        kernel="RD",
+        upsample=False,
+        dP_zeta="auto",
+        jit=True,
+    )
     og = np.array(m(jnp.array(f), *p))
     dlog = np.array(m.d_integrate(0, jnp.array(f), *p))  # d/d logAs
     good = og > og.max() * 1e-6

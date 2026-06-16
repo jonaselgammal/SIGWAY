@@ -8,6 +8,7 @@
   P_zeta interpolant on the same grids -- checks the MS P_zeta plumbing against
   the generic integrator to tight tolerance.
 """
+
 import numpy as np
 import jax.numpy as jnp
 import pytest
@@ -22,9 +23,15 @@ import _sigway_oracle as oracle
 def _sig_rd(name):
     cfg = C.ANALYTIC_CONFIGS[name]
     m = OmegaGWjax(
-        cfg["pzeta"], jnp.array(cfg["s"]), cfg["t"], f=jnp.array(cfg["f"]),
-        norm=cfg["norm"], kernel=cfg["kernel"], upsample=True,
-        dP_zeta="auto", jit=True,
+        cfg["pzeta"],
+        jnp.array(cfg["s"]),
+        cfg["t"],
+        f=jnp.array(cfg["f"]),
+        norm=cfg["norm"],
+        kernel=cfg["kernel"],
+        upsample=True,
+        dP_zeta="auto",
+        jit=True,
     )
     return cfg, np.array(m(jnp.array(cfg["f"]), *cfg["params"]))
 
@@ -48,7 +55,8 @@ def test_rd_spectrum_vs_oracle(name, tol, kappa_lo, kappa_hi):
         kk = f0 * 2 * np.pi
         tmax = float(np.array(cfg["t"](jnp.array([kk]), *cfg["params"])).max())
         orc = oracle.omega_RD_oracle(
-            kk, Pz, cfg["norm"], t_max=tmax, ns=300, nt=5000)
+            kk, Pz, cfg["norm"], t_max=tmax, ns=300, nt=5000
+        )
         assert abs(float(np.interp(f0, cfg["f"], og)) / orc - 1.0) < tol
 
 
@@ -74,29 +82,49 @@ def test_omega_gw_ms_matches_jax_same_pzeta():
     cfg = C.USR_CONFIG
     p = cfg["params"]
     solver = SingleFieldSolver(
-        C.usr_potential, phi0=cfg["phi0"], pi0=cfg["pi0"],
-        N_CMB_to_end=cfg["N_CMB_to_end"], k=jnp.array(cfg["k_solver"]),
+        C.usr_potential,
+        phi0=cfg["phi0"],
+        pi0=cfg["pi0"],
+        N_CMB_to_end=cfg["N_CMB_to_end"],
+        k=jnp.array(cfg["k_solver"]),
     )
     s = jnp.array(cfg["s"])
     t = C.usr_t_grid(nf=len(cfg["f"]))
-    integ_ms = OmegaGWms(solver, s, t, f=jnp.array(cfg["f"]), kernel="RD",
-                         upsample=True)
+    integ_ms = OmegaGWms(
+        solver, s, t, f=jnp.array(cfg["f"]), kernel="RD", upsample=True
+    )
     og_ms = np.array(integ_ms(jnp.array(cfg["f"]), *p))
 
     # Build the same P_zeta interpolant OmegaGWms uses internally (kint spans
     # min..max of k*u, k*v) and feed it to the generic OmegaGWjax integrator.
     kvec = jnp.array(cfg["f"]) * 2 * jnp.pi
-    uv = jnp.array([get_u(t[None, :, :], s[:, None, None]),
-                    get_v(t[None, :, :], s[:, None, None])])
-    kint = jnp.geomspace(float(jnp.min(kvec) * jnp.min(uv)),
-                         float(jnp.max(kvec) * jnp.max(uv)), 100)
+    uv = jnp.array(
+        [
+            get_u(t[None, :, :], s[:, None, None]),
+            get_v(t[None, :, :], s[:, None, None]),
+        ]
+    )
+    kint = jnp.geomspace(
+        float(jnp.min(kvec) * jnp.min(uv)),
+        float(jnp.max(kvec) * jnp.max(uv)),
+        100,
+    )
     pzc = solver.run(kint, *p)
 
     def pz_wrap(k, *params):
         return pzc(k)
 
-    integ_jax = OmegaGWjax(pz_wrap, s, t, f=jnp.array(cfg["f"]), norm="RD",
-                           kernel="RD", upsample=True, jit=False)
+    integ_jax = OmegaGWjax(
+        pz_wrap,
+        s,
+        t,
+        f=jnp.array(cfg["f"]),
+        norm="RD",
+        kernel="RD",
+        upsample=True,
+        jit=False,
+    )
     og_jax = np.array(integ_jax(jnp.array(cfg["f"]), *p))
-    np.testing.assert_allclose(og_ms, og_jax, rtol=1e-4,
-                               atol=np.nanmax(og_ms) * 1e-10)
+    np.testing.assert_allclose(
+        og_ms, og_jax, rtol=1e-4, atol=np.nanmax(og_ms) * 1e-10
+    )

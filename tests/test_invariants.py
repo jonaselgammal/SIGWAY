@@ -4,6 +4,7 @@ Each test encodes an expectation that holds independently of sigway's internals
 (a scaling law, a resonance location, a causal slope, a source-support cutoff),
 so they survive the planned refactor and fail on real physics regressions.
 """
+
 import numpy as np
 import jax.numpy as jnp
 import pytest
@@ -14,19 +15,26 @@ import _sigway_configs as C
 
 def _model(cfg, f, s=None):
     return OmegaGWjax(
-        cfg["pzeta"], jnp.array(s if s is not None else cfg["s"]), cfg["t"],
-        f=jnp.array(f), norm=cfg["norm"], kernel=cfg["kernel"],
-        upsample=True, dP_zeta="auto", jit=True,
+        cfg["pzeta"],
+        jnp.array(s if s is not None else cfg["s"]),
+        cfg["t"],
+        f=jnp.array(f),
+        norm=cfg["norm"],
+        kernel=cfg["kernel"],
+        upsample=True,
+        dP_zeta="auto",
+        jit=True,
     )
 
 
 @pytest.mark.parametrize(
-    "name,kind", [
+    "name,kind",
+    [
         ("bpl_rd", "log"),
         ("lognormal_rd", "log"),
         ("osc_multifield_rd", "log"),
         ("emd_imd2rd", "lin"),
-    ]
+    ],
 )
 def test_amplitude_bilinearity(name, kind):
     """Omega_GW is bilinear in P_zeta amplitude: A -> lambda*A gives lambda^2.
@@ -82,7 +90,7 @@ def test_lognormal_ir_causal_tail():
     # Custom uncapped t-grid so the deep-IR source (peak at t ~ 2 k_*/k) is
     # captured; the shipped t_ln caps t at 1e5*k_*, which truncates k << k_*.
     def t_deep(k, logAs, logDelta, logks):
-        D = 10.0 ** logDelta
+        D = 10.0**logDelta
         upper = jnp.exp(4 * D) * (8 * ks / k)
         one = jnp.ones_like(k)
         t1 = jnp.linspace(1e-5 * one, 0.999 * one, 200)
@@ -91,8 +99,15 @@ def test_lognormal_ir_causal_tail():
 
     f = np.geomspace(1e-7, 0.2 * ks / (2 * np.pi), 60)
     m = OmegaGWjax(
-        cfg["pzeta"], jnp.linspace(0.0, 1.0, 20), t_deep, f=jnp.array(f),
-        norm="RD", kernel="RD", upsample=True, dP_zeta="auto", jit=True,
+        cfg["pzeta"],
+        jnp.linspace(0.0, 1.0, 20),
+        t_deep,
+        f=jnp.array(f),
+        norm="RD",
+        kernel="RD",
+        upsample=True,
+        dP_zeta="auto",
+        jit=True,
     )
     og = np.array(m(jnp.array(f), *p))
     k = f * 2 * np.pi
@@ -100,9 +115,9 @@ def test_lognormal_ir_causal_tail():
     lk, lo = np.log(k[ok]), np.log(og[ok])
     n = len(lk)
     slope_deep = np.polyfit(lk[: n // 2], lo[: n // 2], 1)[0]
-    slope_shallow = np.polyfit(lk[n // 2:], lo[n // 2:], 1)[0]
-    assert 2.2 < slope_deep < 3.0          # causal tail with log enhancement
-    assert slope_deep > slope_shallow      # steepens toward 3 as k -> 0
+    slope_shallow = np.polyfit(lk[n // 2 :], lo[n // 2 :], 1)[0]
+    assert 2.2 < slope_deep < 3.0  # causal tail with log enhancement
+    assert slope_deep > slope_shallow  # steepens toward 3 as k -> 0
 
 
 def test_emd_source_cutoff():

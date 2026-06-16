@@ -10,6 +10,7 @@ Independent reference: scipy.special.sici (and finite differences for the
 derivative). These functions are jitted helpers that the refactor may relocate;
 only the import line would change.
 """
+
 import numpy as np
 import jax.numpy as jnp
 
@@ -44,7 +45,9 @@ def test_d_sici_precomp_matches_finite_difference():
     """
     x = np.geomspace(1e-1, 1e3, 400)
     h = x * 1e-6
-    fd = (np.array(_sici_precomp(jnp.array(x + h)))
-          - np.array(_sici_precomp(jnp.array(x - h)))) / (2 * h)
+    fd = (
+        np.array(_sici_precomp(jnp.array(x + h)))
+        - np.array(_sici_precomp(jnp.array(x - h)))
+    ) / (2 * h)
     ana = np.array(_d_sici_precomp(jnp.array(x)))
     assert np.nanmax(np.abs(ana / fd - 1.0)) < 1e-4

@@ -9,6 +9,7 @@ N-D contract so that regression cannot return silently.
 
 Independent reference: scipy.integrate.simpson, applied column-by-column.
 """
+
 import numpy as np
 import jax.numpy as jnp
 from scipy.integrate import simpson as sp_simpson

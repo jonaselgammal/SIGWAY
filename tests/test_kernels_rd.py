@@ -9,6 +9,7 @@ not a stored snapshot. Tolerances are ~1e-10: the two implementations agree to
 Targets stable physics (the kernel's numerical output), so it survives the
 planned Kernel-class refactor; only the import line would move.
 """
+
 import numpy as np
 import jax.numpy as jnp
 import pytest

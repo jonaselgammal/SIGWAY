@@ -9,17 +9,12 @@ grid-resolution limitations found while building this suite:
   point count converges);
 * the eMD t-grid under-resolves the t^4 large-V integrand for k << kmax.
 """
-import os
 
 import numpy as np
 import jax.numpy as jnp
 
 from sigway.omega_gw_jax import OmegaGWjax
-from sigway.ms_solver import SingleFieldSolver
-from sigway.omega_gw_ms import OmegaGWms
 import _sigway_configs as C
-
-REFDIR = os.path.join(os.path.dirname(__file__), "test_data", "reference")
 
 
 def _lognormal_omega_at(f0, ns, nt_lo, nt_hi):
@@ -27,16 +22,24 @@ def _lognormal_omega_at(f0, ns, nt_lo, nt_hi):
     ks = 10.0 ** p[2]
 
     def tgrid(k, logAs, logDelta, logks):
-        D = 10.0 ** logDelta
+        D = 10.0**logDelta
         upper = jnp.exp(4 * D) * (2 * ks / k)
         one = jnp.ones_like(k)
         t1 = jnp.linspace(1e-5 * one, 0.999 * one, nt_lo)
         t2 = jnp.geomspace(jnp.ones_like(upper), upper, nt_hi)
         return jnp.concatenate([t1, t2], axis=0)
 
-    m = OmegaGWjax(C.pzeta_ln, jnp.linspace(0, 1, ns), tgrid,
-                   f=jnp.array([f0]), norm="RD", kernel="RD",
-                   upsample=False, dP_zeta="auto", jit=True)
+    m = OmegaGWjax(
+        C.pzeta_ln,
+        jnp.linspace(0, 1, ns),
+        tgrid,
+        f=jnp.array([f0]),
+        norm="RD",
+        kernel="RD",
+        upsample=False,
+        dP_zeta="auto",
+        jit=True,
+    )
     return float(np.array(m(jnp.array([f0]), *p))[0])
 
 

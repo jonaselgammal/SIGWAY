@@ -85,8 +85,14 @@ def gen_rd(name, kappa_hi=None):
     cfg = C.ANALYTIC_CONFIGS[name]
     p = cfg["params"]
     m = OmegaGWjax(
-        cfg["pzeta"], jnp.array(cfg["s"]), cfg["t"], f=jnp.array(cfg["f"]),
-        norm=cfg["norm"], kernel=cfg["kernel"], upsample=True, dP_zeta="auto",
+        cfg["pzeta"],
+        jnp.array(cfg["s"]),
+        cfg["t"],
+        f=jnp.array(cfg["f"]),
+        norm=cfg["norm"],
+        kernel=cfg["kernel"],
+        upsample=True,
+        dP_zeta="auto",
         jit=True,
     )
     og = np.array(m(jnp.array(cfg["f"]), *p))
@@ -106,23 +112,34 @@ def gen_rd(name, kappa_hi=None):
     for f0 in fv:
         k = f0 * 2 * np.pi
         tmax = float(np.array(cfg["t"](jnp.array([k]), *p)).max())
-        orc.append(oracle.omega_RD_oracle(
-            k, Pz, cfg["norm"], t_max=tmax, ns=300, nt=5000))
+        orc.append(
+            oracle.omega_RD_oracle(
+                k, Pz, cfg["norm"], t_max=tmax, ns=300, nt=5000
+            )
+        )
         sig.append(float(np.interp(f0, cfg["f"], og)))
     sig, orc = np.array(sig), np.array(orc)
     rel = np.abs(sig / orc - 1)
     assert rel.max() < VAL_TOL[name], f"{name} validation {rel.max():.2e}"
     val = dict(
-        f=fv, sigway=sig, oracle=orc, relerr=rel,
+        f=fv,
+        sigway=sig,
+        oracle=orc,
+        relerr=rel,
         meta=dict(
-            config=name, doc=cfg["doc"], norm=cfg["norm"], kernel=cfg["kernel"],
+            config=name,
+            doc=cfg["doc"],
+            norm=cfg["norm"],
+            kernel=cfg["kernel"],
             method="dense scipy-Simpson, textbook RD kernel (omega_RD_oracle)",
-            max_relerr=float(rel.max()), tol=VAL_TOL[name],
+            max_relerr=float(rel.max()),
+            tol=VAL_TOL[name],
         ),
     )
     _save(name, cfg["f"], og, p, val)
-    _manifest.append((name, cfg["doc"], val["meta"]["method"], rel.max(),
-                      VAL_TOL[name]))
+    _manifest.append(
+        (name, cfg["doc"], val["meta"]["method"], rel.max(), VAL_TOL[name])
+    )
 
 
 def gen_emd():
@@ -130,8 +147,14 @@ def gen_emd():
     cfg = C.ANALYTIC_CONFIGS[name]
     As, kmax, etaR = cfg["params"]
     m = OmegaGWjax(
-        cfg["pzeta"], jnp.array(cfg["s"]), cfg["t"], f=jnp.array(cfg["f"]),
-        norm=cfg["norm"], kernel=cfg["kernel"], upsample=True, dP_zeta="auto",
+        cfg["pzeta"],
+        jnp.array(cfg["s"]),
+        cfg["t"],
+        f=jnp.array(cfg["f"]),
+        norm=cfg["norm"],
+        kernel=cfg["kernel"],
+        upsample=True,
+        dP_zeta="auto",
         jit=True,
     )
     og = np.array(m(jnp.array(cfg["f"]), *cfg["params"]))
@@ -158,18 +181,31 @@ def gen_emd():
     rel = np.abs(sig / orc - 1)
     assert rel.max() < VAL_TOL[name], f"{name} validation {rel.max():.2e}"
     val = dict(
-        f=fv, sigway=sig, oracle=orc, relerr=rel,
+        f=fv,
+        sigway=sig,
+        oracle=orc,
+        relerr=rel,
         meta=dict(
-            config=name, doc=cfg["doc"], norm=cfg["norm"], kernel=cfg["kernel"],
+            config=name,
+            doc=cfg["doc"],
+            norm=cfg["norm"],
+            kernel=cfg["kernel"],
             method="scipy dblquad/quad, eMD kernels; 0.5-1.0 kmax band",
             note="IR/UV tails t-grid-limited; see test_convergence",
-            max_relerr=float(rel.max()), tol=VAL_TOL[name],
+            max_relerr=float(rel.max()),
+            tol=VAL_TOL[name],
         ),
     )
     _save(name, fall, og, cfg["params"], val)
-    _manifest.append((name, cfg["doc"],
-                      "scipy dblquad/quad, eMD kernels (peak band)",
-                      rel.max(), VAL_TOL[name]))
+    _manifest.append(
+        (
+            name,
+            cfg["doc"],
+            "scipy dblquad/quad, eMD kernels (peak band)",
+            rel.max(),
+            VAL_TOL[name],
+        )
+    )
 
 
 def gen_usr():
@@ -177,13 +213,20 @@ def gen_usr():
     cfg = C.USR_CONFIG
     p = cfg["params"]
     solver = SingleFieldSolver(
-        C.usr_potential, phi0=cfg["phi0"], pi0=cfg["pi0"],
-        N_CMB_to_end=cfg["N_CMB_to_end"], k=jnp.array(cfg["k_solver"]),
+        C.usr_potential,
+        phi0=cfg["phi0"],
+        pi0=cfg["pi0"],
+        N_CMB_to_end=cfg["N_CMB_to_end"],
+        k=jnp.array(cfg["k_solver"]),
     )
     t = C.usr_t_grid(nf=len(cfg["f"]))
     integ = OmegaGWms(
-        solver, jnp.array(cfg["s"]), t, f=jnp.array(cfg["f"]),
-        kernel=cfg["kernel"], upsample=True,
+        solver,
+        jnp.array(cfg["s"]),
+        t,
+        f=jnp.array(cfg["f"]),
+        kernel=cfg["kernel"],
+        upsample=True,
     )
     og = np.array(integ(jnp.array(cfg["f"]), *p))
     # Validate against the numpy oracle fed the solver's own P_zeta(k). To make
@@ -212,23 +255,32 @@ def gen_usr():
     for f0 in fv:
         k = f0 * 2 * np.pi
         tmax = float(np.array(t).max())
-        orc.append(oracle.omega_RD_oracle(
-            k, Pz, "RD", t_max=tmax, ns=400, nt=8000))
+        orc.append(
+            oracle.omega_RD_oracle(k, Pz, "RD", t_max=tmax, ns=400, nt=8000)
+        )
         sig.append(float(np.interp(f0, cfg["f"], og)))
     sig, orc = np.array(sig), np.array(orc)
     rel = np.abs(sig / orc - 1)
     assert rel.max() < VAL_TOL[name], f"{name} validation {rel.max():.2e}"
     val = dict(
-        f=fv, sigway=sig, oracle=orc, relerr=rel,
+        f=fv,
+        sigway=sig,
+        oracle=orc,
+        relerr=rel,
         meta=dict(
-            config=name, doc=cfg["doc"], norm="RD", kernel=cfg["kernel"],
+            config=name,
+            doc=cfg["doc"],
+            norm="RD",
+            kernel=cfg["kernel"],
             method="numpy oracle fed the MS-solver P_zeta(k) (independent)",
-            max_relerr=float(rel.max()), tol=VAL_TOL[name],
+            max_relerr=float(rel.max()),
+            tol=VAL_TOL[name],
         ),
     )
     _save(name, cfg["f"], og, p, val)
-    _manifest.append((name, cfg["doc"], val["meta"]["method"], rel.max(),
-                      VAL_TOL[name]))
+    _manifest.append(
+        (name, cfg["doc"], val["meta"]["method"], rel.max(), VAL_TOL[name])
+    )
 
 
 def write_manifest():
@@ -244,7 +296,8 @@ def write_manifest():
     ]
     for name, doc, method, rel, tol in _manifest:
         lines.append(
-            f"| `{name}` | {doc} | {method} | {rel:.2e} | {tol:.0%} |\n")
+            f"| `{name}` | {doc} | {method} | {rel:.2e} | {tol:.0%} |\n"
+        )
     with open(os.path.join(OUTDIR, "MANIFEST.md"), "w") as fh:
         fh.writelines(lines)
     print("  wrote MANIFEST.md")

@@ -12,6 +12,7 @@ integration:
 The MS end-to-end Omega_GW regression and the OmegaGWms-vs-OmegaGWjax check live
 in test_omega_gw_regression / test_cross_backend.
 """
+
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -28,7 +29,10 @@ def _V_quadratic(phi, m):
 
 def _quadratic_solver():
     return SingleFieldSolver(
-        _V_quadratic, phi0=16.0, pi0=0.0, N_CMB_to_end=55.0,
+        _V_quadratic,
+        phi0=16.0,
+        pi0=0.0,
+        N_CMB_to_end=55.0,
         k=jnp.geomspace(1e-4, 1e-1, 40),
     )
 

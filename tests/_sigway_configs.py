@@ -264,12 +264,14 @@ ANALYTIC_CONFIGS = {
 # ---------------------------------------------------------------------------
 def usr_potential(phi, a, lam, v, nfac):
     """Quasi-inflection-point single-field potential used for the USR run."""
-    b = (1 + nfac) * (
-        1 - a**2 / 3 + a**2 / 3 * (9 / (2 * a**2) - 1) ** (2 / 3)
-    )
+    b = (1 + nfac) * (1 - a**2 / 3 + a**2 / 3 * (9 / (2 * a**2) - 1) ** (2 / 3))
     f = phi / v
     return (
-        lam * v**4 / 12 * f**2 * (6 - 4 * a * f + 3 * f**2)
+        lam
+        * v**4
+        / 12
+        * f**2
+        * (6 - 4 * a * f + 3 * f**2)
         / (1 + b * f**2) ** 2
     )
 

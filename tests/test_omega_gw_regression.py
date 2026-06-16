@@ -15,6 +15,7 @@ against the independent numpy/scipy oracle (see MANIFEST.md); these tests:
 This is the primary safety net for the planned refactor: it targets the public
 Omega_GW-given-config surface, not internal helpers.
 """
+
 import os
 import json
 
@@ -39,9 +40,15 @@ def _load(name):
 def _build_analytic(name):
     cfg = C.ANALYTIC_CONFIGS[name]
     m = OmegaGWjax(
-        cfg["pzeta"], jnp.array(cfg["s"]), cfg["t"], f=jnp.array(cfg["f"]),
-        norm=cfg["norm"], kernel=cfg["kernel"], upsample=True,
-        dP_zeta="auto", jit=True,
+        cfg["pzeta"],
+        jnp.array(cfg["s"]),
+        cfg["t"],
+        f=jnp.array(cfg["f"]),
+        norm=cfg["norm"],
+        kernel=cfg["kernel"],
+        upsample=True,
+        dP_zeta="auto",
+        jit=True,
     )
     return np.array(m(jnp.array(cfg["f"]), *cfg["params"]))
 
@@ -74,13 +81,20 @@ def test_usr_ms_regression():
     ref, meta = _load("usr_ms")
     cfg = C.USR_CONFIG
     solver = SingleFieldSolver(
-        C.usr_potential, phi0=cfg["phi0"], pi0=cfg["pi0"],
-        N_CMB_to_end=cfg["N_CMB_to_end"], k=jnp.array(cfg["k_solver"]),
+        C.usr_potential,
+        phi0=cfg["phi0"],
+        pi0=cfg["pi0"],
+        N_CMB_to_end=cfg["N_CMB_to_end"],
+        k=jnp.array(cfg["k_solver"]),
     )
     t = C.usr_t_grid(nf=len(cfg["f"]))
     integ = OmegaGWms(
-        solver, jnp.array(cfg["s"]), t, f=jnp.array(cfg["f"]),
-        kernel=cfg["kernel"], upsample=True,
+        solver,
+        jnp.array(cfg["s"]),
+        t,
+        f=jnp.array(cfg["f"]),
+        kernel=cfg["kernel"],
+        upsample=True,
     )
     got = np.array(integ(jnp.array(cfg["f"]), *cfg["params"]))
     peak = np.nanmax(ref["omega_gw"])
