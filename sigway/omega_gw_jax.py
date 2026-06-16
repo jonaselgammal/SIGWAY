@@ -2,10 +2,17 @@
 import numpy as np
 from scipy.special import sici
 
-# Local
 import jax
 import jax.numpy as jnp
 from jax import jit, jvp, lax
+
+# Local
+from sigway.utils import (
+    SM_CG_factor,
+    Omega_radiation_h2_today,
+    simpson_uniform,
+    simpson_nonuniform,
+)
 
 jax.config.update("jax_enable_x64", True)
 
@@ -21,15 +28,15 @@ def norm():
     Prefactor in front of the integral for the Tensor power spectrum.
     Is a constant assuming radiation domination.
     """
-    OMEGA_R = 4.2 * 10 ** (-5)
-    CG = 0.39
-    return CG / 12 * OMEGA_R
+
+    return SM_CG_factor / 12.0 * Omega_radiation_h2_today
 
 
 @jit
-def u(t, s):
+def get_u(t, s):
     """
-    Helper function to translate between u, v and s, t.
+    Helper function to get u from s, t. To get this invert 4.19 of 2501.11320.
+    s should be in [-1,1], t should be in [0, infty].
 
     Parameters:
     - t: jax.numpy.ndarray
@@ -41,13 +48,14 @@ def u(t, s):
     - jax.numpy.ndarray
         Array of u values.
     """
-    return (t + s + 1) / 2
+    return (t + s + 1.0) / 2.0
 
 
 @jit
-def v(t, s):
+def get_v(t, s):
     """
-    Helper function to translate between u, v and s, t.
+    Helper function to get v from s, t. To get this invert 4.19 of 2501.11320.
+    s should be in [-1,1], t should be in [0, infty].
 
     Parameters:
     - t: jax.numpy.ndarray
@@ -59,13 +67,14 @@ def v(t, s):
     - jax.numpy.ndarray
         Array of v values.
     """
-    return (t - s + 1) / 2
+    return (t - s + 1.0) / 2.0
 
 
 @jit
 def polynomial(t, s):
     """
     Polynomial term in the integrand for the Tensor power spectrum.
+    See 4.20 of 2501.11320.
     Note that this term is k-independent.
 
     Parameters:
@@ -78,15 +87,24 @@ def polynomial(t, s):
     - jax.numpy.ndarray
         Array of polynomial values.
     """
-    return 2 * ((t * (2 + t) * (s**2 - 1)) / ((1 - s + t) * (1 + s + t))) ** 2
+
+    numerator = t * (2.0 + t) * (s**2 - 1.0)
+    denominator = (1.0 - s + t) * (1.0 + s + t)
+
+    return 2.0 * (numerator / denominator) ** 2
 
 
 # Radiation domination all the way
 @jit
-def I_sq_RD(t, s, k):
+def I_sq_RD_uv(t, s, k):
     r"""
     :math:`overline{I^2_{RD}(t, s, x\\to\\infty)}` assuming radiation
     domination. Note that this term is k-independent.
+
+    This function is written in terms of u and v to match eq. 4.21, 4.22 of
+    2501.11320. Notice that this is less stable numerically than I_sq_RD,
+    especially for large values of t! We keep it for testing but for all
+    computations use I_sq_RD.
 
     Parameters:
     - t: jax.numpy.ndarray
@@ -100,24 +118,70 @@ def I_sq_RD(t, s, k):
     - jax.numpy.ndarray
         Array of :math:`overline{I^2_{RD}(t, s, x\\to\\infty)}` values.
     """
-    prefactor = (
-        288
-        * (-5 + s**2 + t * (2 + t)) ** 2
-        / ((1 - s + t) ** 6 * (1 + s + t) ** 6)
+    u = get_u(t, s)
+    v = get_v(t, s)
+
+    # An auxiliary factor used in several places below
+    factor = u**2 + v**2 - 3.0
+
+    # These are the terms in 4.22 of 2501.11320
+    IA = 3.0 * factor / (4.0 * u**3 * v**3)
+    IB = -4.0 * u * v + factor * jnp.log(
+        jnp.abs((3.0 - (u + v) ** 2) / ((3.0 - (u - v) ** 2)))
     )
+    IC = jnp.pi * factor * jnp.heaviside(u + v - jnp.sqrt(3), 1)
+
+    return IA**2 * (IB**2 + IC**2) / 2.0
+
+
+# Radiation domination all the way
+@jit
+def I_sq_RD(t, s, k):
+    r"""
+        :math:`overline{I^2_{RD}(t, s, x\\to\\infty)}` assuming radiation
+        domination. Note that this term is k-independent.
+
+        This function is written explicitly in terms of t and s.
+        The output of this function matches with the output of I_sq_RD_uv,
+        which is consistent with eq. 4.21, 4.22 of 2501.11320.
+
+        Parameters:
+        - t: jax.numpy.ndarray
+            Array of t values.
+        - s: jax.numpy.ndarray
+            Array of s values.
+        - k: jax.numpy.ndarray
+            Array of k values.
+
+        Returns:
+        - jax.numpy.ndarray
+            Array of :math:`overline{I^2_{RD}(t, s, x\\to\\infty)}` values.
+    """
+
+    # This is IA**2 from eq. 4.21 of 2501.11320
+    prefactor = (
+        288.0
+        * (-5.0 + s**2 + t * (2.0 + t)) ** 2
+        / ((1.0 - s + t) ** 6 * (1.0 + s + t) ** 6)
+    )
+
+    # This is IB**2 from eq. 4.21 of 2501.11320
     log_term = (
-        (-1 + s - t) * (1 + s + t)
+        (-1.0 + s - t) * (1.0 + s + t)
         + (
-            (-5 + s**2 + t * (2 + t))
-            * jnp.log(jnp.abs((-2 + t * (2 + t)) / (3 - s**2)))
+            (-5.0 + s**2 + t * (2.0 + t))
+            * jnp.log(jnp.abs((-2 + t * (2.0 + t)) / (3.0 - s**2)))
         )
         / 2.0
     ) ** 2
+
+    # This is IC**2 from eq. 4.21 of 2501.11320
     heaviside_term = (
         jnp.pi**2
-        * (-5 + s**2 + t * (2 + t)) ** 2
-        * jnp.heaviside(1 - jnp.sqrt(3) + t, 1)
+        * (-5.0 + s**2 + t * (2.0 + t)) ** 2
+        * jnp.heaviside(1.0 - jnp.sqrt(3.0) + t, 1)
     ) / 4.0
+
     return prefactor * (log_term + heaviside_term)
 
 
@@ -366,103 +430,6 @@ def d_I_sq_IRD_res(index, t, s, k, kmax, etaR):
     )
 
 
-@jit
-def simpson_uniform(f, x):
-    """
-    Fully vectorized implementation of Simpson's rule for a uniform grid.
-    If f is a multi-dimensional array, the integration is performed over the
-    first axis.
-
-    Parameters:
-    - f: jax.numpy.ndarray, shape (N, ...)
-        Array of function values. Integration is performed over the first axis.
-    - x: jax.numpy.ndarray, shape (N,)
-        Array of grid points.
-
-    Returns:
-    - result: jax.numpy.ndarray
-        Array of integrated values.
-    """
-    N = f.shape[0] - 1
-    h = x[1] - x[0]
-
-    # Main computation for Simpson's rule
-    result = (
-        f[0]
-        + f[-1]
-        + 2 * jnp.sum(f[2:N:2], axis=0)
-        + 4 * jnp.sum(f[1:N:2], axis=0)
-    )
-
-    # Multiply by h/3
-    result *= h / 3
-
-    # Adjust if N is odd (last segment)
-    if N % 2 == 0:
-        result -= (
-            (f[-2] + f[-1]) * h / 3
-        )  # Subtract last interval computed in the main sum
-        result += (h / 2) * (
-            (2 * f[-1] + f[-2]) + (f[-1] + f[-2])
-        )  # Trapezoidal rule for the last interval
-
-    return result
-
-
-@jit
-def simpson_nonuniform(f, x):
-    """
-    Numerical integration using Simpson's rule on a non-uniform grid.
-
-    This fully vectorized implementation is suitable for multi-dimensional
-    arrays, integrating over the first axis. Assumes non-uniformly spaced grid
-    points.
-
-    Parameters:
-    - f (jax.numpy.ndarray): Array of function values, shape (N, ...).
-    - x (jax.numpy.ndarray): Array of grid points, shape (N,) or same as 'f'.
-
-    Returns:
-    - jax.numpy.ndarray: Integrated values.
-    """
-
-    N = len(x) - 1
-    h = jnp.diff(x, axis=0)  # Differences between consecutive x values
-    f_shape = f.shape
-
-    # Adjusting shape for broadcasting if necessary
-    if x.shape != f_shape:
-        broadcast_shape = (-1,) + (1,) * (len(f_shape) - 1)
-        h0 = h[:-1:2].reshape(broadcast_shape)
-        h1 = h[1::2].reshape(broadcast_shape)
-    else:
-        h0 = h[:-1:2]
-        h1 = h[1::2]
-
-    hph = h1 + h0
-    hdh = h1 / h0
-    hmh = h1 * h0
-    result = jnp.sum(
-        (hph / 6)
-        * (
-            (2 - hdh) * f[:-2:2]
-            + (hph**2 / hmh) * f[1:-1:2]
-            + (2 - 1 / hdh) * f[2::2]
-        ),
-        axis=0,
-    )
-
-    # Additional computation for even N (last segment)
-    if N % 2 == 1:
-        h0 = h[-2]
-        h1 = h[-1]
-        result += f[-1] * (2 * h1**2 + 3 * h0 * h1) / (6 * (h0 + h1))
-        result += f[-2] * (h1**2 + 3 * h1 * h0) / (6 * h0)
-        result -= f[-3] * h1**3 / (6 * h0 * (h0 + h1))
-
-    return result
-
-
 def integrand(P_zeta, kernel, s, t, k, *params):
     """
     Integrand for the non-transitioning kernels.
@@ -481,11 +448,15 @@ def integrand(P_zeta, kernel, s, t, k, *params):
     - params: tuple
         Tuple of parameters for the P_zeta function.
     """
+
+    u = get_u(t, s)
+    v = get_v(t, s)
+
     return (
         kernel(t, s, k)
         * polynomial(t, s)
-        * P_zeta(k * u(t, s), *params)
-        * P_zeta(k * v(t, s), *params)
+        * P_zeta(k * u, *params)
+        * P_zeta(k * v, *params)
     )
 
 
@@ -513,11 +484,15 @@ def integrand_transitioning_kernel(P_zeta, kernel, s, t, k, *params):
     """
     kmax = params[-2]
     etaR = params[-1]
+
+    u = get_u(t, s)
+    v = get_v(t, s)
+
     return (
         kernel(t, s, k, kmax, etaR)
         * polynomial(t, s)
-        * P_zeta(k * u(t, s), *params)
-        * P_zeta(k * v(t, s), *params)
+        * P_zeta(k * u, *params)
+        * P_zeta(k * v, *params)
     )
 
 
@@ -554,14 +529,16 @@ def d_integrand(index, P_zeta, dP_zeta, kernel, s, t, k, *params):
     - jax.numpy.ndarray
         Array of integrand values.
     """
+
+    k_u = k * get_u(t, s)
+    k_v = k * get_v(t, s)
+
     return (
         kernel(t, s, k)
         * polynomial(t, s)
         * (
-            P_zeta(k * u(t, s), *params)
-            * dP_zeta(P_zeta, index, k * v(t, s), *params)
-            + dP_zeta(P_zeta, index, k * u(t, s), *params)
-            * P_zeta(k * v(t, s), *params)
+            P_zeta(k_u, *params) * dP_zeta(P_zeta, index, k_v, *params)
+            + dP_zeta(P_zeta, index, k_u, *params) * P_zeta(k_v, *params)
         )
     )
 
@@ -598,15 +575,17 @@ def d_integrand_transitioning_kernel(
     """
     kmax = params[-2]
     etaR = params[-1]
+
+    k_u = k * get_u(t, s)
+    k_v = k * get_v(t, s)
+
     # Standard derivative except for etaR
     term1 = (
         kernel(t, s, k, kmax, etaR)
         * polynomial(t, s)
         * (
-            P_zeta(k * u(t, s), *params)
-            * dP_zeta(P_zeta, index, k * v(t, s), *params)
-            + dP_zeta(P_zeta, index, k * u(t, s), *params)
-            * P_zeta(k * v(t, s), *params)
+            P_zeta(k_u, *params) * dP_zeta(P_zeta, index, k_v, *params)
+            + dP_zeta(P_zeta, index, k_u, *params) * P_zeta(k_v, *params)
         )
     )
     if index != len(params) - 1:
@@ -616,8 +595,8 @@ def d_integrand_transitioning_kernel(
         term2 = (
             d_kernel(1, t, s, k, kmax, etaR)
             * polynomial(t, s)
-            * P_zeta(k * u(t, s), *params)
-            * P_zeta(k * v(t, s), *params)
+            * P_zeta(k_u, *params)
+            * P_zeta(k_v, *params)
         )
         return term1 + term2
 
@@ -654,22 +633,25 @@ def d_integrand_transitioning_kernel_delta(
     """
     kmax = params[-2]
     etaR = params[-1]
+
+    u = get_u(t, s)
+    v = get_v(t, s)
+
     # First term containing the derivatives of P_zeta
     if index == len(params) - 2:
         term1 = (
             kernel(t, s, k, kmax, etaR)
             * polynomial(t, s)
-            * dP_zeta(P_zeta, index, k * v(t, s), *params) ** 2.0
+            * dP_zeta(P_zeta, index, k * v, *params) ** 2.0
         )
     else:
         term1 = (
             kernel(t, s, k, kmax, etaR)
             * polynomial(t, s)
             * (
-                P_zeta(k * u(t, s), *params)
-                * dP_zeta(P_zeta, index, k * v(t, s), *params)
-                + dP_zeta(P_zeta, index, k * u(t, s), *params)
-                * P_zeta(k * v(t, s), *params)
+                P_zeta(k * u, *params) * dP_zeta(P_zeta, index, k * v, *params)
+                + dP_zeta(P_zeta, index, k * u, *params)
+                * P_zeta(k * v, *params)
             )
         )
     if index != len(params) - 1:
@@ -679,8 +661,8 @@ def d_integrand_transitioning_kernel_delta(
         term2 = (
             d_kernel(1, t, s, k, kmax, etaR)
             * polynomial(t, s)
-            * P_zeta(k * u(t, s), *params)
-            * P_zeta(k * v(t, s), *params)
+            * P_zeta(k * u, *params)
+            * P_zeta(k * v, *params)
         )
         return term1 + term2
 

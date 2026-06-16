@@ -17,7 +17,7 @@ from diffrax import (
     ODETerm,
     Tsit5,
     PIDController,
-    DiscreteTerminatingEvent,
+    Event,
     SaveAt,
     backward_hermite_coefficients,
     # LinearInterpolation,
@@ -32,7 +32,7 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import LogLocator, NullFormatter, FormatStrFormatter
 
 # Local
-from sigway.units import (
+from sigway.utils import (
     efolds_from_wavenumber_si_units,
     H_from_wavenumber,
     wavenumber_from_efolds_si_units,
@@ -102,21 +102,25 @@ def _run_background(Ud, max_efolds, phi0, pvalues, solver_opts):
         derh = -(y**2) / 2 * h
         return jnp.array([derx, dery, derh])
 
-    def inflation_end(state, **kwargs):
+    def inflation_end(t, y, *args, **kwargs):
         """
         Event function to determine the end of inflation.
 
         Parameters
         ----------
-        state : diffrax.diffeqsolve.Solution
-            The current state of the system.
+        t : float
+            The current time or e-fold number.
+        y : array-like
+            The current state of the system [x, y, h].
+        args : tuple
+            Additional arguments for the function (unused here).
 
         Returns
         -------
         bool
             True if inflation has ended, False otherwise.
         """
-        return state.y[1] ** 2 > 2
+        return y[1] ** 2 > 2
 
     # Initial conditions
     Ud0 = Ud(phi0, *pvalues)
@@ -133,7 +137,7 @@ def _run_background(Ud, max_efolds, phi0, pvalues, solver_opts):
     stepsize_controller = PIDController(
         rtol=solver_opts.rtol, atol=solver_opts.atol
     )
-    discrete_terminating_event = DiscreteTerminatingEvent(inflation_end)
+    stopping_event = Event(inflation_end)
     saveat = solver_opts.saveat
 
     # Solving the differential equations
@@ -147,7 +151,7 @@ def _run_background(Ud, max_efolds, phi0, pvalues, solver_opts):
         stepsize_controller=stepsize_controller,
         saveat=saveat,
         max_steps=solver_opts.max_steps,
-        discrete_terminating_event=discrete_terminating_event,
+        event=stopping_event,
     )
 
     return sol
