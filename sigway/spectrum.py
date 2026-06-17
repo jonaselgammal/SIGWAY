@@ -63,7 +63,9 @@ class OmegaGW:
         self.f = None if f is None else jnp.asarray(f)
         self.upsample = upsample
         if self.upsample and self.f is None:
-            raise ValueError("upsample=True requires 'f' to be provided at construction.")
+            raise ValueError(
+                "upsample=True requires 'f' to be provided at construction."
+            )
         pz_names = tuple(perturbations.param_names)
         k_names = tuple(kernel.param_names)
         collisions = set(pz_names) & set(k_names)
@@ -126,8 +128,8 @@ class OmegaGW:
         """
         if not getattr(self.perturbations, "jittable", True):
             raise ValueError(
-                "OmegaGW.jacobian is not available for non-jittable perturbations "
-                "(e.g. SingleFieldPerturbations)."
+                "OmegaGW.jacobian is not available for non-jittable "
+                "perturbations (e.g. SingleFieldPerturbations)."
             )
         theta = jnp.asarray(theta)
         jac = jax.jacfwd(lambda th: self(f, *th))(theta)
