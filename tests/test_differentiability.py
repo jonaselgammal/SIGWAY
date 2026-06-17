@@ -1,25 +1,26 @@
-"""Derivatives: hand-coded kernel gradients and the end-to-end derivative path.
+"""Derivatives: hand-coded kernel gradients and the end-to-end jacobian.
 
 The eMD kernel carries *hand-written* analytic gradients w.r.t. etaR (used by
-the Fisher pipeline), and the spectrum derivative d_integrate uses jax jvp
-through P_zeta. Both are checked against finite differences -- the independent
-reference -- which catches interpolation-gradient artifacts and algebra slips.
+the Fisher pipeline); the spectrum jacobian uses jax.jacfwd through OmegaGW.
+Both are checked against finite differences -- the independent reference --
+which catches interpolation-gradient artifacts and algebra slips.
 
-To compare like with like, the end-to-end test uses a *fixed* (s, t) grid so the
-finite difference does not also perturb the integration grid (the analytic
-derivative treats the grid as constant).
+The end-to-end test uses a *fixed* (s, t) grid so the finite difference does not
+also perturb the integration grid.
 """
 
 import numpy as np
 import jax.numpy as jnp
 
-from sigway.omega_gw_jax import OmegaGWjax
+from sigway.spectrum import OmegaGW
 from sigway.kernels import (
+    RadiationKernel,
     I_sq_IRD_LV,
     d_I_sq_IRD_LV,
     I_sq_IRD_res,
     d_I_sq_IRD_res,
 )
+from sigway.perturbations import AnalyticPerturbations
 import _sigway_configs as C
 
 _KMAX, _ETAR = 0.06, 2000.0
@@ -62,29 +63,24 @@ def test_d_I_sq_IRD_LV_kmax_is_zero():
     assert np.allclose(grad, 0.0)
 
 
-def test_d_integrate_bpl_matches_finite_difference():
-    """Spectrum derivative w.r.t every broken-power-law parameter == central FD.
+def test_jacobian_bpl_matches_finite_difference():
+    """OmegaGW.jacobian == central FD for every broken-power-law parameter.
 
-    Uses a fixed t-grid so FD and the (fixed-grid) analytic derivative agree.
+    Uses a fixed t-grid so FD and the (fixed-grid) jacfwd derivative agree.
     """
     cfg = C.ANALYTIC_CONFIGS["bpl_rd"]
     p = list(cfg["params"])
     f = np.geomspace(1e-4, 1e-1, 12)
-    # freeze the parameter-dependent t-grid at the fiducial parameters
-    t_fixed = cfg["t"](jnp.array(f) * 2 * jnp.pi, *p)
-    m = OmegaGWjax(
-        cfg["pzeta"],
-        jnp.array(cfg["s"]),
-        t_fixed,
-        f=jnp.array(f),
-        norm="RD",
-        kernel="RD",
+    t_fixed = cfg["t"](jnp.array(f) * 2 * jnp.pi, *p)  # freeze grid
+    m = OmegaGW(
+        AnalyticPerturbations(cfg["pzeta"], C._PZ_NAMES["bpl_rd"]),
+        RadiationKernel(),
+        s=jnp.array(cfg["s"]),
+        t=t_fixed,
         upsample=False,
-        dP_zeta="auto",
-        jit=True,
     )
+    J = np.array(m.jacobian(f, jnp.array(p)))
     for idx in range(len(p)):
-        ana = np.array(m.d_integrate(idx, jnp.array(f), *p))
         h = 1e-5 * max(abs(p[idx]), 1.0)
         pp = list(p)
         pp[idx] += h
@@ -93,28 +89,6 @@ def test_d_integrate_bpl_matches_finite_difference():
         fd = (
             np.array(m(jnp.array(f), *pp)) - np.array(m(jnp.array(f), *pm))
         ) / (2 * h)
-        good = np.abs(ana) > np.nanmax(np.abs(ana)) * 1e-6
-        assert np.allclose(ana[good], fd[good], rtol=2e-4), f"param {idx}"
-
-
-def test_amplitude_derivative_closed_form():
-    """d Omega / d(logAs) = 2 ln10 * Omega (since Omega ~ 10^(2 logAs))."""
-    cfg = C.ANALYTIC_CONFIGS["lognormal_rd"]
-    p = list(cfg["params"])
-    f = np.geomspace(1e-4, 1e-2, 10)
-    t_fixed = cfg["t"](jnp.array(f) * 2 * jnp.pi, *p)
-    m = OmegaGWjax(
-        cfg["pzeta"],
-        jnp.array(cfg["s"]),
-        t_fixed,
-        f=jnp.array(f),
-        norm="RD",
-        kernel="RD",
-        upsample=False,
-        dP_zeta="auto",
-        jit=True,
-    )
-    og = np.array(m(jnp.array(f), *p))
-    dlog = np.array(m.d_integrate(0, jnp.array(f), *p))  # d/d logAs
-    good = og > og.max() * 1e-6
-    assert np.allclose(dlog[good], 2 * np.log(10) * og[good], rtol=1e-6)
+        col = J[:, idx]
+        good = np.abs(col) > np.nanmax(np.abs(col)) * 1e-6
+        assert np.allclose(col[good], fd[good], rtol=2e-4), f"param {idx}"

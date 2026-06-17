@@ -2,28 +2,29 @@
 
 Each test encodes an expectation that holds independently of sigway's internals
 (a scaling law, a resonance location, a causal slope, a source-support cutoff),
-so they survive the planned refactor and fail on real physics regressions.
+so they survive the refactor and fail on real physics regressions. All go
+through the canonical OmegaGW model.
 """
 
 import numpy as np
 import jax.numpy as jnp
 import pytest
 
-from sigway.omega_gw_jax import OmegaGWjax
+from sigway.spectrum import OmegaGW
+from sigway.kernels import RadiationKernel
+from sigway.perturbations import AnalyticPerturbations
 import _sigway_configs as C
 
 
-def _model(cfg, f, s=None):
-    return OmegaGWjax(
-        cfg["pzeta"],
-        jnp.array(s if s is not None else cfg["s"]),
-        cfg["t"],
+def _lognormal_model(s, t, f):
+    cfg = C.ANALYTIC_CONFIGS["lognormal_rd"]
+    return OmegaGW(
+        AnalyticPerturbations(cfg["pzeta"], C._PZ_NAMES["lognormal_rd"]),
+        RadiationKernel(),
+        s=jnp.asarray(s),
+        t=t,
         f=jnp.array(f),
-        norm=cfg["norm"],
-        kernel=cfg["kernel"],
         upsample=True,
-        dP_zeta="auto",
-        jit=True,
     )
 
 
@@ -44,15 +45,16 @@ def test_amplitude_bilinearity(name, kind):
     rtol 1e-10 catches any change that breaks the quadratic-in-source structure.
     """
     cfg = C.ANALYTIC_CONFIGS[name]
-    m = _model(cfg, cfg["f"])
+    m = C.build_model(name)
+    f = jnp.array(cfg["f"])
     p = list(cfg["params"])
-    base = np.array(m(jnp.array(cfg["f"]), *p))
+    base = np.array(m(f, *p))
     lam = 3.0
     if kind == "log":
         p[0] = p[0] + np.log10(lam)
     else:
         p[0] = p[0] * lam
-    scaled = np.array(m(jnp.array(cfg["f"]), *p))
+    scaled = np.array(m(f, *p))
     good = base > np.nanmax(base) * 1e-8
     assert np.nanmax(np.abs(scaled[good] / base[good] / lam**2 - 1.0)) < 1e-10
 
@@ -60,16 +62,15 @@ def test_amplitude_bilinearity(name, kind):
 def test_lognormal_peak_at_resonance():
     """A narrow log-normal peaks at the resonance k = 2/sqrt(3) k_*.
 
-    For a Dirac source the RD spectrum diverges at k = 2 k_*/sqrt(3).
-    A finite (narrow) log-normal peaks just below it; require within 4e-3
-    which we tested by hand to be fine for a peak with Delta = 1e-2 or sharper.
+    For a Dirac source the RD spectrum diverges at k = 2 k_*/sqrt(3). A finite
+    (narrow) log-normal peaks just below it; require within 4e-3.
     """
     cfg = C.ANALYTIC_CONFIGS["lognormal_rd"]
-    p = (-2.0, -2.0, -2.0)  # narrow: logDelta = -1  (Delta = 0.1)
+    p = (-2.0, -2.0, -2.0)  # narrow: logDelta = -2 (Delta = 0.01)
     ks = 10.0 ** p[2]
     kpk_expected = 2.0 / np.sqrt(3.0) * ks
     f = np.geomspace(0.6 * kpk_expected, 1.4 * kpk_expected, 300) / (2 * np.pi)
-    m = _model(cfg, f, s=np.linspace(0.0, 1.0, 40))
+    m = _lognormal_model(np.linspace(0.0, 1.0, 40), cfg["t"], f)
     og = np.array(m(jnp.array(f), *p))
     k_peak = f[np.argmax(og)] * 2 * np.pi
     assert abs(k_peak / kpk_expected - 1.0) < 4e-3
@@ -83,7 +84,6 @@ def test_lognormal_ir_causal_tail():
     would give a constant/incorrect slope. We require the deep slope in (2.2, 3)
     and steeper deeper-in (monotone toward 3).
     """
-    cfg = C.ANALYTIC_CONFIGS["lognormal_rd"]
     p = (-2.0, -0.5, -2.0)
     ks = 10.0 ** p[2]
 
@@ -98,17 +98,7 @@ def test_lognormal_ir_causal_tail():
         return jnp.concatenate([t1, t2], axis=0)
 
     f = np.geomspace(1e-7, 0.2 * ks / (2 * np.pi), 60)
-    m = OmegaGWjax(
-        cfg["pzeta"],
-        jnp.linspace(0.0, 1.0, 20),
-        t_deep,
-        f=jnp.array(f),
-        norm="RD",
-        kernel="RD",
-        upsample=True,
-        dP_zeta="auto",
-        jit=True,
-    )
+    m = _lognormal_model(np.linspace(0.0, 1.0, 20), t_deep, f)
     og = np.array(m(jnp.array(f), *p))
     k = f * 2 * np.pi
     ok = (og > 0) & np.isfinite(og)
@@ -125,11 +115,10 @@ def test_emd_source_cutoff():
 
     The induced spectrum has support up to 2 kmax but, for this flat source,
     falls steeply past the peak; require Omega(2 kmax)/Omega_peak < 1e-7.
-    Basically after that the spectrum should be more or less exact 0.
     """
     cfg = C.ANALYTIC_CONFIGS["emd_imd2rd"]
     As, kmax, etaR = cfg["params"]
-    m = _model(cfg, cfg["f"])
+    m = C.build_model("emd_imd2rd")
     og = np.array(m(jnp.array(cfg["f"]), *cfg["params"]))
     peak = np.nanmax(og)
     f_2kmax = 2 * kmax / (2 * np.pi)

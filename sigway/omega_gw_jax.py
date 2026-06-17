@@ -1,4 +1,6 @@
 # Global
+import warnings
+
 import numpy as np
 
 import jax
@@ -360,6 +362,14 @@ class OmegaGWjax:
         dP_zeta_has_delta=False,
         **kwargs,
     ):
+        if type(self) is OmegaGWjax:
+            warnings.warn(
+                "OmegaGWjax is deprecated; use sigway.spectrum.OmegaGW with a "
+                "sigway.kernels Kernel and a sigway.perturbations "
+                "ScalarPerturbations.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         # Constants
         OMEGA_R = 4.2 * 10 ** (-5)  # times h^2, otherwise ~ 8* 10**(-5)
         CG = 0.39

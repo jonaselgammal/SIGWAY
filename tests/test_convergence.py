@@ -13,7 +13,9 @@ grid-resolution limitations found while building this suite:
 import numpy as np
 import jax.numpy as jnp
 
-from sigway.omega_gw_jax import OmegaGWjax
+from sigway.spectrum import OmegaGW
+from sigway.kernels import RadiationKernel
+from sigway.perturbations import AnalyticPerturbations
 import _sigway_configs as C
 
 
@@ -29,16 +31,12 @@ def _lognormal_omega_at(f0, ns, nt_lo, nt_hi):
         t2 = jnp.geomspace(jnp.ones_like(upper), upper, nt_hi)
         return jnp.concatenate([t1, t2], axis=0)
 
-    m = OmegaGWjax(
-        C.pzeta_ln,
-        jnp.linspace(0, 1, ns),
-        tgrid,
-        f=jnp.array([f0]),
-        norm="RD",
-        kernel="RD",
+    m = OmegaGW(
+        AnalyticPerturbations(C.pzeta_ln, ("logAs", "logDelta", "logks")),
+        RadiationKernel(),
+        s=jnp.linspace(0, 1, ns),
+        t=tgrid,
         upsample=False,
-        dP_zeta="auto",
-        jit=True,
     )
     return float(np.array(m(jnp.array([f0]), *p))[0])
 

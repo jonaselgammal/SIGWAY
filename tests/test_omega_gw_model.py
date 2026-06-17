@@ -1,13 +1,10 @@
-"""The new composition model: OmegaGW(kernel, perturbations, integrator).
+"""Inference API of the OmegaGW composition model.
 
-Validates that the new user-facing path reproduces the validated reference
-spectra (so the refactor preserves the physics), and exercises the inference
-API: ordered parameter vector, name-collision error, keyword routing, the
-jacfwd jacobian vs finite differences, and that the analytic path does not
-retrace under changing parameter values (the jit contract).
+The end-to-end physics regression (incl. MS) lives in test_omega_gw_regression;
+here we exercise the parameter API: ordered parameter vector, name-collision
+error, keyword routing, the jacfwd jacobian vs finite differences, and that the
+analytic path does not retrace under changing parameter values (jit contract).
 """
-
-import os
 
 import numpy as np
 import jax
@@ -18,106 +15,25 @@ jax.config.update("jax_enable_x64", True)
 
 import _sigway_configs as C  # noqa: E402
 from sigway.spectrum import OmegaGW  # noqa: E402
-from sigway.kernels import (  # noqa: E402
-    RadiationKernel,
-    InstantEMDKernel,
-    Kernel,
-)
-from sigway.perturbations import (  # noqa: E402
-    AnalyticPerturbations,
-    SingleFieldPerturbations,
-)
-from sigway.ms_solver import SingleFieldSolver  # noqa: E402
+from sigway.kernels import RadiationKernel, Kernel  # noqa: E402
+from sigway.perturbations import AnalyticPerturbations  # noqa: E402
 from sigway.integrators import _simpson_constant  # noqa: E402
-
-REFDIR = os.path.join(os.path.dirname(__file__), "test_data", "reference")
-
-_NAMES = {
-    "bpl_rd": ("logA", "alpha", "beta", "gamma", "logks"),
-    "lognormal_rd": ("logAs", "logDelta", "logks"),
-    "osc_multifield_rd": ("log10A", "log10ks", "delta", "eta_L", "F"),
-}
-
-
-def _heaviside2(k, As, kmax):
-    return jnp.heaviside(kmax - k, 1.0) * As
-
-
-def _build(name):
-    cfg = C.ANALYTIC_CONFIGS[name]
-    if name == "emd_imd2rd":
-        pert = AnalyticPerturbations(_heaviside2, ("As", "kmax"))
-        kern = InstantEMDKernel()
-    else:
-        pert = AnalyticPerturbations(cfg["pzeta"], _NAMES[name])
-        kern = RadiationKernel()
-    model = OmegaGW(
-        pert,
-        kern,
-        s=jnp.array(cfg["s"]),
-        t=cfg["t"],
-        f=jnp.array(cfg["f"]),
-        upsample=True,
-    )
-    return model, cfg
-
-
-@pytest.mark.parametrize(
-    "name", ["bpl_rd", "lognormal_rd", "osc_multifield_rd", "emd_imd2rd"]
-)
-def test_omega_gw_reproduces_fixture(name):
-    """New OmegaGW path reproduces the validated reference spectrum."""
-    ref = np.load(os.path.join(REFDIR, f"{name}.npz"))
-    model, cfg = _build(name)
-    got = np.array(model(jnp.array(cfg["f"]), *ref["params"]))
-    peak = np.nanmax(ref["omega_gw"])
-    np.testing.assert_allclose(
-        got, ref["omega_gw"], rtol=1e-6, atol=peak * 1e-10
-    )
-
-
-def test_omega_gw_ms_reproduces_fixture():
-    """The MS (USR) path through OmegaGW reproduces the usr_ms fixture.
-
-    Exercises a non-jit-able ScalarPerturbations: the integrator runs it
-    eagerly and uses SingleFieldPerturbations.prepare (one solve + interpolant).
-    """
-    ref = np.load(os.path.join(REFDIR, "usr_ms.npz"))
-    cfg = C.USR_CONFIG
-    solver = SingleFieldSolver(
-        C.usr_potential,
-        phi0=cfg["phi0"],
-        pi0=cfg["pi0"],
-        N_CMB_to_end=cfg["N_CMB_to_end"],
-        k=jnp.array(cfg["k_solver"]),
-    )
-    model = OmegaGW(
-        SingleFieldPerturbations(solver, ("a", "lam", "v", "nfac")),
-        RadiationKernel(),
-        s=jnp.array(cfg["s"]),
-        t=C.usr_t_grid(nf=len(cfg["f"])),
-        f=jnp.array(cfg["f"]),
-        upsample=True,
-    )
-    got = np.array(model(jnp.array(cfg["f"]), *ref["params"]))
-    peak = np.nanmax(ref["omega_gw"])
-    np.testing.assert_allclose(
-        got, ref["omega_gw"], rtol=1e-5, atol=peak * 1e-10
-    )
 
 
 def test_parameter_names_order():
     """theta order is perturbation params then kernel params."""
-    model, _ = _build("emd_imd2rd")
+    model = C.build_model("emd_imd2rd")
     assert model.parameter_names == ("As", "kmax", "etaR")
 
 
 def test_keyword_equals_positional():
     """Keyword routing matches positional theta in parameter_names order."""
-    model, cfg = _build("emd_imd2rd")
+    model = C.build_model("emd_imd2rd")
+    cfg = C.ANALYTIC_CONFIGS["emd_imd2rd"]
     As, kmax, etaR = cfg["params"]
-    pos = np.array(model(jnp.array(cfg["f"]), As, kmax, etaR))
-    kw = np.array(model(jnp.array(cfg["f"]), As=As, kmax=kmax, etaR=etaR))
+    f = jnp.array(cfg["f"])
+    pos = np.array(model(f, As, kmax, etaR))
+    kw = np.array(model(f, As=As, kmax=kmax, etaR=etaR))
     assert np.array_equal(pos, kw)
 
 
@@ -132,27 +48,32 @@ def test_parameter_name_collision_raises():
 
     with pytest.raises(ValueError, match="collision"):
         OmegaGW(
-            AnalyticPerturbations(_heaviside2, ("As", "kmax")),
+            AnalyticPerturbations(C.pzeta_heaviside2, ("As", "kmax")),
             ClashKernel(),
             s=jnp.array([0.0, 1.0]),
             t=jnp.ones((3, 2)),
         )
 
 
-def test_jacobian_matches_finite_difference():
-    """jacfwd Jacobian == central FD for a smooth (RD) config; and the
-    log-amplitude column equals the closed form 2 ln10 * Omega_GW."""
+def _fixed_grid_lognormal():
     cfg = C.ANALYTIC_CONFIGS["lognormal_rd"]
     p = cfg["params"]
     f = np.geomspace(1e-4, 1e-2, 10)
     t_fixed = cfg["t"](jnp.array(f) * 2 * jnp.pi, *p)  # freeze grid
     model = OmegaGW(
-        AnalyticPerturbations(cfg["pzeta"], _NAMES["lognormal_rd"]),
+        AnalyticPerturbations(cfg["pzeta"], C._PZ_NAMES["lognormal_rd"]),
         RadiationKernel(),
         s=jnp.array(cfg["s"]),
         t=t_fixed,
         upsample=False,
     )
+    return model, f, p
+
+
+def test_jacobian_matches_finite_difference():
+    """jacfwd Jacobian == central FD for a smooth (RD) config; and the
+    log-amplitude column equals the closed form 2 ln10 * Omega_GW."""
+    model, f, p = _fixed_grid_lognormal()
     J = np.array(model.jacobian(f, jnp.array(p)))
     og = np.array(model(f, *p))
     good = og > og.max() * 1e-6
@@ -169,17 +90,7 @@ def test_jacobian_matches_finite_difference():
 
 def test_analytic_path_does_not_retrace():
     """Changing only theta (fixed shapes) reuses the compiled jit core."""
-    cfg = C.ANALYTIC_CONFIGS["lognormal_rd"]
-    p = cfg["params"]
-    f = np.geomspace(1e-4, 1e-2, 10)
-    t_fixed = cfg["t"](jnp.array(f) * 2 * jnp.pi, *p)
-    model = OmegaGW(
-        AnalyticPerturbations(cfg["pzeta"], _NAMES["lognormal_rd"]),
-        RadiationKernel(),
-        s=jnp.array(cfg["s"]),
-        t=t_fixed,
-        upsample=False,
-    )
+    model, f, p = _fixed_grid_lognormal()
     model(f, *p)  # compile once
     n = _simpson_constant._cache_size()
     model(f, p[0] + 0.3, p[1], p[2])  # different theta, same shapes

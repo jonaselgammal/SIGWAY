@@ -23,6 +23,14 @@ import jax
 import jax.numpy as jnp
 from jax import jit
 
+from sigway.spectrum import OmegaGW
+from sigway.perturbations import (
+    AnalyticPerturbations,
+    SingleFieldPerturbations,
+)
+from sigway.kernels import RadiationKernel, InstantEMDKernel
+from sigway.ms_solver import SingleFieldSolver
+
 jax.config.update("jax_enable_x64", True)
 
 
@@ -205,8 +213,9 @@ def t_osc(k, log10A, log10ks, delta, eta_L, F):
 # ---------------------------------------------------------------------------
 # Analytic-P_zeta configuration registry
 # ---------------------------------------------------------------------------
-# Each entry fully specifies an OmegaGWjax(...) construction + the matching
-# numpy P_zeta factory used by the independent oracle.
+# Each entry holds the P_zeta closed form (+ a numpy mirror for the oracle),
+# the integration grids and fiducial params; build_model() turns it into an
+# OmegaGW. The norm/kernel string fields are kept for the oracle's bookkeeping.
 ANALYTIC_CONFIGS = {
     "bpl_rd": dict(
         pzeta=pzeta_bpl,
@@ -307,3 +316,69 @@ def usr_t_grid(nlo=200, nhi=800, nf=200):
         [jnp.linspace(1e-5, 0.999, nlo), jnp.geomspace(1.0, 1e3, nhi)]
     )
     return jnp.repeat(jnp.expand_dims(t, axis=-1), nf, axis=-1)
+
+
+# ---------------------------------------------------------------------------
+# Canonical model construction (the new OmegaGW composition API).
+# Single source of truth shared by the regression / invariant / cross-backend
+# / convergence tests so they all exercise the same construction.
+# ---------------------------------------------------------------------------
+_PZ_NAMES = {
+    "bpl_rd": ("logA", "alpha", "beta", "gamma", "logks"),
+    "lognormal_rd": ("logAs", "logDelta", "logks"),
+    "osc_multifield_rd": ("log10A", "log10ks", "delta", "eta_L", "F"),
+}
+
+
+@jit
+def pzeta_heaviside2(k, As, kmax):
+    """Flat spectrum with a cutoff at kmax; kmax is a P_zeta (source) param."""
+    return jnp.heaviside(kmax - k, 1.0) * As
+
+
+def perturbations_for(name):
+    """The ScalarPerturbations object for a config (analytic or MS)."""
+    if name == "usr_ms":
+        cfg = USR_CONFIG
+        solver = SingleFieldSolver(
+            usr_potential,
+            phi0=cfg["phi0"],
+            pi0=cfg["pi0"],
+            N_CMB_to_end=cfg["N_CMB_to_end"],
+            k=jnp.array(cfg["k_solver"]),
+        )
+        return SingleFieldPerturbations(solver, ("a", "lam", "v", "nfac"))
+    if name == "emd_imd2rd":
+        return AnalyticPerturbations(pzeta_heaviside2, ("As", "kmax"))
+    cfg = ANALYTIC_CONFIGS[name]
+    return AnalyticPerturbations(cfg["pzeta"], _PZ_NAMES[name])
+
+
+def kernel_for(name):
+    """The Kernel object for a config (carries its own normalisation)."""
+    if name == "emd_imd2rd":
+        return InstantEMDKernel()
+    return RadiationKernel()
+
+
+def build_model(name):
+    """Build the canonical OmegaGW model for a named config."""
+    if name == "usr_ms":
+        cfg = USR_CONFIG
+        return OmegaGW(
+            perturbations_for(name),
+            kernel_for(name),
+            s=jnp.array(cfg["s"]),
+            t=usr_t_grid(nf=len(cfg["f"])),
+            f=jnp.array(cfg["f"]),
+            upsample=True,
+        )
+    cfg = ANALYTIC_CONFIGS[name]
+    return OmegaGW(
+        perturbations_for(name),
+        kernel_for(name),
+        s=jnp.array(cfg["s"]),
+        t=cfg["t"],
+        f=jnp.array(cfg["f"]),
+        upsample=True,
+    )

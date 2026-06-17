@@ -1,11 +1,12 @@
 # Global
+import warnings
+
 import jax
 import jax.numpy as jnp
 
 # Local
 from sigway.ms_solver import SingleFieldSolver
 from sigway.omega_gw_jax import OmegaGWjax, get_u, get_v
-
 
 jax.config.update("jax_enable_x64", True)
 
@@ -73,6 +74,13 @@ class OmegaGWms(OmegaGWjax):
         dP_zeta=None,
         jit=False,
     ):
+        warnings.warn(
+            "OmegaGWms is deprecated; use sigway.spectrum.OmegaGW with "
+            "sigway.perturbations.SingleFieldPerturbations and a "
+            "sigway.kernels Kernel.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         if not isinstance(P_zeta, SingleFieldSolver):
             raise ValueError(
                 "Pzeta should be an instance of SingleFieldSolver. If your "

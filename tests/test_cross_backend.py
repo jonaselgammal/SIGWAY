@@ -1,38 +1,32 @@
-"""Cross-backend / cross-representation agreement.
+"""Cross-backend / cross-representation agreement (through OmegaGW).
 
-* sigway's fixed-grid jax Simpson integrator vs the independent numpy/scipy
+* OmegaGW's fixed-grid jax Simpson integrator vs the independent numpy/scipy
   oracle (adaptive quadrature / dense Simpson, textbook kernels) -- agreement
   within the documented integration error proves the result is right, not just
   reproducible.
-* OmegaGWms (P_zeta from the Mukhanov-Sasaki solver) vs OmegaGWjax fed the same
-  P_zeta interpolant on the same grids -- checks the MS P_zeta plumbing against
-  the generic integrator to tight tolerance.
+* The MS path (SingleFieldPerturbations, run eagerly) vs the same MS P_zeta
+  interpolant fed as an AnalyticPerturbations (the jit path) -- checks the
+  MS-specific prepare/eager plumbing against the generic integrator.
 """
 
 import numpy as np
 import jax.numpy as jnp
 import pytest
 
-from sigway.omega_gw_jax import OmegaGWjax, get_u, get_v
+from sigway.spectrum import OmegaGW
+from sigway.kernels import RadiationKernel, get_u, get_v
+from sigway.perturbations import (
+    AnalyticPerturbations,
+    SingleFieldPerturbations,
+)
 from sigway.ms_solver import SingleFieldSolver
-from sigway.omega_gw_ms import OmegaGWms
 import _sigway_configs as C
 import _sigway_oracle as oracle
 
 
 def _sig_rd(name):
     cfg = C.ANALYTIC_CONFIGS[name]
-    m = OmegaGWjax(
-        cfg["pzeta"],
-        jnp.array(cfg["s"]),
-        cfg["t"],
-        f=jnp.array(cfg["f"]),
-        norm=cfg["norm"],
-        kernel=cfg["kernel"],
-        upsample=True,
-        dP_zeta="auto",
-        jit=True,
-    )
+    m = C.build_model(name)
     return cfg, np.array(m(jnp.array(cfg["f"]), *cfg["params"]))
 
 
@@ -44,7 +38,7 @@ def _sig_rd(name):
     ],
 )
 def test_rd_spectrum_vs_oracle(name, tol, kappa_lo, kappa_hi):
-    """SIGWAY RD spectrum agrees with the independent numpy oracle in-band."""
+    """OmegaGW RD spectrum agrees with the independent numpy oracle in-band."""
     cfg, og = _sig_rd(name)
     Pz = cfg["pzeta_np"](*cfg["params"])
     ks = cfg["ks"]
@@ -73,14 +67,15 @@ def test_emd_spectrum_vs_oracle():
         assert abs(float(np.interp(f0, cfg["f"], og)) / orc - 1.0) < 0.05
 
 
-def test_omega_gw_ms_matches_jax_same_pzeta():
-    """OmegaGWms == OmegaGWjax fed the identical MS P_zeta on identical grids.
+def test_ms_path_matches_same_pzeta_analytic():
+    """MS path (eager) == the same MS P_zeta interpolant fed analytically (jit).
 
-    Isolates the MS-specific P_zeta extraction: both integrate the same source
-    over the same (s, t, f), so they must agree to integration round-off.
+    Isolates the MS-specific prepare/eager plumbing: both integrate the same
+    source over the same (s, t, f), so they must agree to integration round-off.
     """
     cfg = C.USR_CONFIG
     p = cfg["params"]
+    names = ("a", "lam", "v", "nfac")
     solver = SingleFieldSolver(
         C.usr_potential,
         phi0=cfg["phi0"],
@@ -90,14 +85,19 @@ def test_omega_gw_ms_matches_jax_same_pzeta():
     )
     s = jnp.array(cfg["s"])
     t = C.usr_t_grid(nf=len(cfg["f"]))
-    integ_ms = OmegaGWms(
-        solver, s, t, f=jnp.array(cfg["f"]), kernel="RD", upsample=True
-    )
-    og_ms = np.array(integ_ms(jnp.array(cfg["f"]), *p))
+    f = jnp.array(cfg["f"])
 
-    # Build the same P_zeta interpolant OmegaGWms uses internally (kint spans
-    # min..max of k*u, k*v) and feed it to the generic OmegaGWjax integrator.
-    kvec = jnp.array(cfg["f"]) * 2 * jnp.pi
+    ms_model = OmegaGW(
+        SingleFieldPerturbations(solver, names),
+        RadiationKernel(),
+        s=s,
+        t=t,
+        f=f,
+        upsample=True,
+    )
+    og_ms = np.array(ms_model(f, *p))
+
+    # same interpolant the integrator builds internally (kint over k*u, k*v)
     uv = jnp.array(
         [
             get_u(t[None, :, :], s[:, None, None]),
@@ -105,26 +105,20 @@ def test_omega_gw_ms_matches_jax_same_pzeta():
         ]
     )
     kint = jnp.geomspace(
-        float(jnp.min(kvec) * jnp.min(uv)),
-        float(jnp.max(kvec) * jnp.max(uv)),
+        float(jnp.min(f * 2 * jnp.pi) * jnp.min(uv)),
+        float(jnp.max(f * 2 * jnp.pi) * jnp.max(uv)),
         100,
     )
     pzc = solver.run(kint, *p)
-
-    def pz_wrap(k, *params):
-        return pzc(k)
-
-    integ_jax = OmegaGWjax(
-        pz_wrap,
-        s,
-        t,
-        f=jnp.array(cfg["f"]),
-        norm="RD",
-        kernel="RD",
+    analytic = OmegaGW(
+        AnalyticPerturbations(lambda k, *q: pzc(k), names),
+        RadiationKernel(),
+        s=s,
+        t=t,
+        f=f,
         upsample=True,
-        jit=False,
     )
-    og_jax = np.array(integ_jax(jnp.array(cfg["f"]), *p))
+    og_an = np.array(analytic(f, *p))
     np.testing.assert_allclose(
-        og_ms, og_jax, rtol=1e-4, atol=np.nanmax(og_ms) * 1e-10
+        og_ms, og_an, rtol=1e-4, atol=np.nanmax(og_ms) * 1e-10
     )
