@@ -30,9 +30,22 @@ class ScalarPerturbations:
     """
 
     param_names = ()
+    # Whether P_zeta can be evaluated inside jit/grad. Analytic spectra are
+    # jittable; the MS solver is not (it uses scipy splines internally), so the
+    # integrator runs that path eagerly.
+    jittable = True
 
     def __call__(self, k, *params):
         raise NotImplementedError
+
+    def prepare(self, kint, *params):
+        """Return a 1-arg ``P_zeta(k)`` callable with ``params`` baked in.
+
+        The integrator calls this once and then evaluates the result on its
+        dense (k u, k v) grid. The default binds ``__call__``; the MS solver
+        overrides it to solve once on ``kint`` and return an interpolant.
+        """
+        return lambda k: self(k, *params)
 
 
 class AnalyticPerturbations(ScalarPerturbations):
@@ -54,6 +67,8 @@ class SingleFieldPerturbations(ScalarPerturbations):
     interpolated P_zeta(k) callable (one solve on ``kint``) for the
     integrator to evaluate on the dense (k u, k v) grid.
     """
+
+    jittable = False  # uses scipy splines internally -> integrate eagerly
 
     def __init__(self, solver, param_names=()):
         if not isinstance(solver, SingleFieldSolver):

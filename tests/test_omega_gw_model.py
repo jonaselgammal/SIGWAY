@@ -23,7 +23,11 @@ from sigway.kernels import (  # noqa: E402
     InstantEMDKernel,
     Kernel,
 )
-from sigway.perturbations import AnalyticPerturbations  # noqa: E402
+from sigway.perturbations import (  # noqa: E402
+    AnalyticPerturbations,
+    SingleFieldPerturbations,
+)
+from sigway.ms_solver import SingleFieldSolver  # noqa: E402
 from sigway.integrators import _simpson_constant  # noqa: E402
 
 REFDIR = os.path.join(os.path.dirname(__file__), "test_data", "reference")
@@ -69,6 +73,36 @@ def test_omega_gw_reproduces_fixture(name):
     peak = np.nanmax(ref["omega_gw"])
     np.testing.assert_allclose(
         got, ref["omega_gw"], rtol=1e-6, atol=peak * 1e-10
+    )
+
+
+def test_omega_gw_ms_reproduces_fixture():
+    """The MS (USR) path through OmegaGW reproduces the usr_ms fixture.
+
+    Exercises a non-jit-able ScalarPerturbations: the integrator runs it
+    eagerly and uses SingleFieldPerturbations.prepare (one solve + interpolant).
+    """
+    ref = np.load(os.path.join(REFDIR, "usr_ms.npz"))
+    cfg = C.USR_CONFIG
+    solver = SingleFieldSolver(
+        C.usr_potential,
+        phi0=cfg["phi0"],
+        pi0=cfg["pi0"],
+        N_CMB_to_end=cfg["N_CMB_to_end"],
+        k=jnp.array(cfg["k_solver"]),
+    )
+    model = OmegaGW(
+        SingleFieldPerturbations(solver, ("a", "lam", "v", "nfac")),
+        RadiationKernel(),
+        s=jnp.array(cfg["s"]),
+        t=C.usr_t_grid(nf=len(cfg["f"])),
+        f=jnp.array(cfg["f"]),
+        upsample=True,
+    )
+    got = np.array(model(jnp.array(cfg["f"]), *ref["params"]))
+    peak = np.nanmax(ref["omega_gw"])
+    np.testing.assert_allclose(
+        got, ref["omega_gw"], rtol=1e-5, atol=peak * 1e-10
     )
 
 
