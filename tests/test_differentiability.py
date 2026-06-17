@@ -13,8 +13,8 @@ derivative treats the grid as constant).
 import numpy as np
 import jax.numpy as jnp
 
-from sigway.omega_gw_jax import (
-    OmegaGWjax,
+from sigway.omega_gw_jax import OmegaGWjax
+from sigway.kernels import (
     I_sq_IRD_LV,
     d_I_sq_IRD_LV,
     I_sq_IRD_res,
