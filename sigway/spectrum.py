@@ -117,6 +117,11 @@ class OmegaGW:
 
         Not available for the MS solver path (it is not differentiable).
         """
+        if not getattr(self.perturbations, "jittable", True):
+            raise ValueError(
+                "OmegaGW.jacobian is not available for non-jittable perturbations "
+                "(e.g. SingleFieldPerturbations)."
+            )
         theta = jnp.asarray(theta)
         jac = jax.jacfwd(lambda th: self(f, *th))(theta)
         fd = self._nonsmooth if fd_params is None else fd_params
