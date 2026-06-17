@@ -480,15 +480,21 @@ class InstantEMDKernel(Kernel):
 
     Two contributions: a smooth large-V part integrated over (s, t) and a
     resonant slice at t = sqrt(3) - 1.
+
+    Only ``etaR`` is a kernel parameter: this implementation depends on k and
+    etaR (via xR = k * etaR), not on kmax. The transition scale kmax is the
+    *source* cutoff, owned by the (heaviside) ScalarPerturbations, and also sets
+    the t-grid range. (The underlying cores still take a kmax slot, which this
+    implementation ignores, so we pass a dummy 0.0.)
     """
 
     k_dependent = True
-    param_names = ("kmax", "etaR")
+    param_names = ("etaR",)
     resonant_t = (3.0**0.5 - 1.0,)
     _default_norm = "CT"
 
-    def overline_Isq(self, t, s, k, kmax, etaR):
-        return I_sq_IRD_LV(t, s, k, kmax, etaR)
+    def overline_Isq(self, t, s, k, etaR):
+        return I_sq_IRD_LV(t, s, k, 0.0, etaR)
 
-    def overline_Isq_resonant(self, t, s, k, kmax, etaR):
-        return I_sq_IRD_res(t, s, k, kmax, etaR)
+    def overline_Isq_resonant(self, t, s, k, etaR):
+        return I_sq_IRD_res(t, s, k, 0.0, etaR)

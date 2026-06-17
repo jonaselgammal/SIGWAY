@@ -57,16 +57,17 @@ def test_instant_emd_kernel_class():
     kern = InstantEMDKernel()
     t = jnp.array([0.3, 1.0])
     s = jnp.array([0.2, 0.5])
+    # only etaR is a kernel param; kmax is unused by the cores (dummy 0.0)
     assert np.array_equal(
-        np.array(kern.overline_Isq(t, s, 0.02, 0.06, 2000.0)),
-        np.array(I_sq_IRD_LV(t, s, 0.02, 0.06, 2000.0)),
+        np.array(kern.overline_Isq(t, s, 0.02, 2000.0)),
+        np.array(I_sq_IRD_LV(t, s, 0.02, 0.0, 2000.0)),
     )
     assert np.array_equal(
-        np.array(kern.overline_Isq_resonant(t, s, 0.02, 0.06, 2000.0)),
-        np.array(I_sq_IRD_res(t, s, 0.02, 0.06, 2000.0)),
+        np.array(kern.overline_Isq_resonant(t, s, 0.02, 2000.0)),
+        np.array(I_sq_IRD_res(t, s, 0.02, 0.0, 2000.0)),
     )
     assert kern.k_dependent is True
-    assert kern.param_names == ("kmax", "etaR")
+    assert kern.param_names == ("etaR",)
     assert np.isclose(kern.resonant_t[0], np.sqrt(3.0) - 1.0)
     assert np.isclose(kern.norm(1.0), 1.0 / 12.0)  # bare/CT default
 
