@@ -11,7 +11,8 @@ configuration that differs from the one used to generate its stored fixture.
 For every analytic power spectrum we provide *two* implementations of the
 identical closed form:
 
-* a ``jax``/``jit`` version (``pzeta_*``) consumed by ``OmegaGWjax``;
+* a ``jax``/``jit`` version (``pzeta_*``) consumed by ``OmegaGW`` (via
+  ``AnalyticPerturbations``, wired up in ``build_model``);
 * a plain ``numpy`` factory (``pzeta_*_np``) consumed by the independent
   integration oracle in :mod:`_sigway_oracle`.
 

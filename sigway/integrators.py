@@ -121,7 +121,13 @@ class SimpsonIntegrator(Integrator):
     def _grids(self, kvec, theta):
         s = self.s(kvec, *theta) if callable(self.s) else self.s
         t = self.t(kvec, *theta) if callable(self.t) else self.t
-        return jnp.asarray(s), jnp.asarray(t)
+        t = jnp.asarray(t)
+        if t.ndim == 1:
+            # a single t grid shared across all k -> broadcast to (nt, nk)
+            t = jnp.broadcast_to(
+                t[:, None], (t.shape[0], jnp.asarray(kvec).shape[0])
+            )
+        return jnp.asarray(s), t
 
     def integrate(self, kernel, pzeta, kvec, theta_pz, theta_k):
         theta = (*theta_pz, *theta_k)

@@ -88,6 +88,31 @@ def test_jacobian_matches_finite_difference():
     assert np.allclose(J[good, 0], 2 * np.log(10) * og[good], rtol=1e-6)
 
 
+def test_one_dimensional_t_grid_broadcasts():
+    """A 1-D t grid is broadcast across k (matches the explicit 2-D form)."""
+    cfg = C.ANALYTIC_CONFIGS["lognormal_rd"]
+    p = cfg["params"]
+    f = np.geomspace(1e-4, 1e-2, 8)
+    names = C._PZ_NAMES["lognormal_rd"]
+    t1d = jnp.geomspace(1e-5, 1e3, 400)
+    t2d = jnp.broadcast_to(t1d[:, None], (t1d.shape[0], f.shape[0]))
+    m1 = OmegaGW(
+        AnalyticPerturbations(cfg["pzeta"], names),
+        RadiationKernel(),
+        s=jnp.array(cfg["s"]),
+        t=t1d,
+        upsample=False,
+    )
+    m2 = OmegaGW(
+        AnalyticPerturbations(cfg["pzeta"], names),
+        RadiationKernel(),
+        s=jnp.array(cfg["s"]),
+        t=t2d,
+        upsample=False,
+    )
+    assert np.allclose(np.array(m1(f, *p)), np.array(m2(f, *p)))
+
+
 def test_analytic_path_does_not_retrace():
     """Changing only theta (fixed shapes) reuses the compiled jit core."""
     model, f, p = _fixed_grid_lognormal()
