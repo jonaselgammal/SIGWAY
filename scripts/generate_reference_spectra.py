@@ -36,9 +36,7 @@ sys.path.insert(0, TESTS)
 
 import _sigway_configs as C  # noqa: E402
 import _sigway_oracle as oracle  # noqa: E402
-from sigway.omega_gw_jax import OmegaGWjax  # noqa: E402
 from sigway.ms_solver import SingleFieldSolver  # noqa: E402
-from sigway.omega_gw_ms import OmegaGWms  # noqa: E402
 
 OUTDIR = os.path.join(TESTS, "test_data", "reference")
 os.makedirs(OUTDIR, exist_ok=True)
@@ -84,17 +82,7 @@ def _save(name, f, og, params, val):
 def gen_rd(name, kappa_hi=None):
     cfg = C.ANALYTIC_CONFIGS[name]
     p = cfg["params"]
-    m = OmegaGWjax(
-        cfg["pzeta"],
-        jnp.array(cfg["s"]),
-        cfg["t"],
-        f=jnp.array(cfg["f"]),
-        norm=cfg["norm"],
-        kernel=cfg["kernel"],
-        upsample=True,
-        dP_zeta="auto",
-        jit=True,
-    )
+    m = C.build_model(name)
     og = np.array(m(jnp.array(cfg["f"]), *p))
     Pz = cfg["pzeta_np"](*p)
     f_for_val = cfg["f"]
@@ -146,17 +134,7 @@ def gen_emd():
     name = "emd_imd2rd"
     cfg = C.ANALYTIC_CONFIGS[name]
     As, kmax, etaR = cfg["params"]
-    m = OmegaGWjax(
-        cfg["pzeta"],
-        jnp.array(cfg["s"]),
-        cfg["t"],
-        f=jnp.array(cfg["f"]),
-        norm=cfg["norm"],
-        kernel=cfg["kernel"],
-        upsample=True,
-        dP_zeta="auto",
-        jit=True,
-    )
+    m = C.build_model(name)
     og = np.array(m(jnp.array(cfg["f"]), *cfg["params"]))
     Pz = cfg["pzeta_np"](*cfg["params"])
     # Validate in the well-resolved band k in [0.5, 1.0] * kmax (the rising
@@ -220,21 +198,13 @@ def gen_usr():
         k=jnp.array(cfg["k_solver"]),
     )
     t = C.usr_t_grid(nf=len(cfg["f"]))
-    integ = OmegaGWms(
-        solver,
-        jnp.array(cfg["s"]),
-        t,
-        f=jnp.array(cfg["f"]),
-        kernel=cfg["kernel"],
-        upsample=True,
-    )
-    og = np.array(integ(jnp.array(cfg["f"]), *p))
+    og = np.array(C.build_model(name)(jnp.array(cfg["f"]), *p))
     # Validate against the numpy oracle fed the solver's own P_zeta(k). To make
     # the comparison independent of sigway's *integrator* (not its P_zeta), we
     # build the oracle's P_zeta from the SAME MS-solver spectrum over the SAME
-    # internal k-range OmegaGWms integrates on (mink..maxk over k*u, k*v),
-    # then re-sample it densely. Agreement then tests only the two integrators.
-    from sigway.omega_gw_jax import get_u, get_v
+    # internal k-range the integrator uses (mink..maxk over k*u, k*v), then
+    # re-sample it densely. Agreement then tests only the two integrators.
+    from sigway.kernels import get_u, get_v
 
     kvec = jnp.array(cfg["f"]) * 2 * jnp.pi
     uv = jnp.array(

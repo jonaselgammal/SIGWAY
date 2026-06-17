@@ -16,7 +16,7 @@ import jax.numpy as jnp
 
 from scipy.special import sici
 
-from sigway.omega_gw_jax import _sici_precomp, _d_sici_precomp
+from sigway.kernels import _sici_precomp, _d_sici_precomp
 
 
 def _LV_exact(x):

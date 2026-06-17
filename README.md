@@ -33,6 +33,54 @@ $ pip install -e .
 
 The -e is to install in "editable" mode, meaning that if you change something in the code you don't have to re-install with pip. 
 
+### Usage
+
+$\Omega_{\mathrm{GW}}(f)$ is computed by composing three pieces — a **power
+spectrum** $\mathcal{P}_\zeta$ (`sigway.perturbations`), a **kernel** (the
+transfer function, `sigway.kernels`) and an **integrator** (the numerical
+method, `sigway.integrators`, default Simpson) — into an `OmegaGW` model
+(`sigway.spectrum`):
+
+```python
+import jax.numpy as jnp
+from sigway.spectrum import OmegaGW
+from sigway.kernels import RadiationKernel
+from sigway.perturbations import AnalyticPerturbations
+
+def pzeta(k, logA, logks):                 # your P_zeta(k, *params)
+    A, ks = 10.0 ** logA, 10.0 ** logks
+    return A * jnp.exp(-0.5 * (jnp.log(k / ks) / 0.3) ** 2)
+
+f = jnp.geomspace(1e-5, 1e-1, 200)
+model = OmegaGW(
+    AnalyticPerturbations(pzeta, ("logA", "logks")),
+    RadiationKernel(),                     # carries the RD normalisation
+    s=jnp.linspace(0.0, 1.0, 10),
+    t=jnp.geomspace(1e-5, 1e3, 800),       # array (shared over k) or t(k, *theta)
+)
+
+omega = model(f, -2.0, -2.0)               # theta in model.parameter_names order
+```
+
+The model owns a single ordered parameter vector for inference:
+
+```python
+model.parameter_names          # ('logA', 'logks')
+model(f, logA=-2.0, logks=-2.0)            # keyword form also works
+fisher_jac = model.jacobian(f, [-2.0, -2.0])   # d Omega_GW / d theta (jax.jacfwd)
+```
+
+Swap in other physics by changing a component:
+
+- **Early matter domination:** `from sigway.kernels import InstantEMDKernel`
+  (its source cutoff `kmax` is a `ScalarPerturbations` parameter).
+- **Mukhanov–Sasaki** $\mathcal{P}_\zeta$: wrap a
+  `sigway.ms_solver.SingleFieldSolver` in
+  `sigway.perturbations.SingleFieldPerturbations`.
+
+> The previous `OmegaGWjax` / `OmegaGWms` classes are **deprecated** (they emit a
+> `DeprecationWarning`); use `OmegaGW` with a kernel and a perturbation instead.
+
 ### Dependencies
 
 The current, minimal public version that contains the core functionality of the package needs jax, diffrax, numpy, scipy and matplotlib. The dependencies should be installed automatically but if not pip is your friend.

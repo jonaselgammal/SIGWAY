@@ -144,6 +144,25 @@ class Binned_P_zeta:
             kvec, self.fk, domega
         )  # To avoid log(0)
 
+    # --- OmegaGW-consistent interface (binned is its own dedicated path: it
+    # returns Omega_GW directly from precomputed coefficients, with no kernel
+    # or (s, t) integral, so it does not go through OmegaGW). ---
+    @property
+    def parameter_names(self):
+        """Ordered bin log-amplitude names, like OmegaGW.parameter_names."""
+        return tuple(self.parameterNames)
+
+    def __call__(self, f, *theta):
+        """Omega_GW(f) for bin amplitudes theta."""
+        return self.template(f, *theta)
+
+    def jacobian(self, f, theta):
+        """d Omega_GW(f) / d theta, stacked from the per-bin derivative."""
+        return jnp.stack(
+            [self.dtemplate_default(i, f, *theta) for i in range(len(theta))],
+            axis=-1,
+        )
+
 
 if __name__ == "__main__":
 

@@ -1,11 +1,15 @@
 # SIGWAY test suite
 
-This suite is the **safety net for the planned composition refactor** (separate
-`Kernel` / `PowerSpectrum` / `Integrator` classes). It therefore targets
-**physics and the public `Omega_GW(f)`-given-config surface**, not internal
-helpers that will move. Every test encodes an *independent* expectation (a closed
-form, an analytic limit, a scaling law, or an independent integrator) — never
-"runs / finite / positive".
+This suite is the **safety net for the composition refactor**. The package is
+now structured as `sigway.kernels` (Kernel hierarchy), `sigway.perturbations`
+(ScalarPerturbations hierarchy), `sigway.integrators` (Integrator strategy) and
+`sigway.spectrum` (the user-facing `OmegaGW` model); the legacy `OmegaGWjax` /
+`OmegaGWms` classes are deprecated. Tests construct models through
+`_sigway_configs.build_model(...)` (the single source of construction) and target
+**physics and the public `OmegaGW(f, *theta)` surface**, not internal helpers.
+Every test encodes an *independent* expectation (a closed form, an analytic
+limit, a scaling law, or an independent integrator) — never "runs / finite /
+positive".
 
 Run with the project interpreter and x64:
 
@@ -20,11 +24,13 @@ python -m pytest tests/        # 53 tests
 | `test_kernels_rd.py` | RD transfer function `I_sq_RD`/`I_sq_RD_uv`; parity, non-negativity, k-independence | textbook `overline{I^2}(u,v)` (numpy) | rtol 1e-10 |
 | `test_special_functions.py` | Si/Ci table + derivative behind the eMD kernel | `scipy.special.sici`, finite differences | rtol 1e-9 / 1e-4 |
 | `test_simpson_nd.py` | 1-D **and N-D** Simpson contract (the regression the fix repairs) | `scipy.integrate.simpson` | rtol 1e-10 |
-| `test_omega_gw_regression.py` | end-to-end `Omega_GW(f)` for 4 analytic configs + USR/MS vs validated fixtures | stored, oracle-validated fixtures | rtol 1e-4 |
+| `test_omega_gw_regression.py` | end-to-end `OmegaGW(f)` for all 5 configs (4 analytic + USR/MS) via `build_model`, vs validated fixtures | stored, oracle-validated fixtures | rtol 1e-4 |
+| `test_omega_gw_model.py` | `OmegaGW` parameter API: ordered `parameter_names`, collision error, keyword routing, jacfwd jacobian, jit no-retrace | finite differences / closed form | rtol 1e-4 |
+| `test_perturbations.py` | `ScalarPerturbations` wrappers don't distort the func/MS solver they wrap | the wrapped func / solver | exact / 1e-8 |
 | `test_invariants.py` | A² bilinearity; resonance peak `2/sqrt3 k_*`; IR `k^3 ln^2` causal tail; eMD source cutoff | analytic limits / scaling laws | 1e-10 / 5% / slope / 1e-4 |
 | `test_cross_backend.py` | SIGWAY vs numpy/scipy oracle; `OmegaGWms` vs `OmegaGWjax` on the same P_ζ | independent integrator | 3–5% / rtol 1e-4 |
 | `test_convergence.py` | `(s,t)` convergence; default within tolerance; documents two grid pathologies | self-convergence | 1–2% |
-| `test_differentiability.py` | hand-coded eMD `etaR` gradients and `d_integrate` vs finite differences | central differences / closed form | rtol 1e-4–1e-5 |
+| `test_differentiability.py` | hand-coded eMD `etaR` kernel gradients and `OmegaGW.jacobian` (jacfwd) vs finite differences | central differences | rtol 1e-4–1e-5 |
 | `test_ms_solver.py` | MS P_ζ tilt = slow-roll `n_s-1=-2/N`; full P_ζ → slow-roll limit | analytic slow roll | 0.01 in n_s / 5% |
 | `test_omega_gw_jax.py`, `test_utils.py` | pre-existing snapshot/scipy checks (kept) | — | — |
 

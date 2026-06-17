@@ -1,7 +1,7 @@
 """Mukhanov-Sasaki solver physics (the EOM-based P_zeta representation).
 
-Validates the P_zeta the OmegaGWms pipeline consumes, independently of the SIGW
-integration:
+Validates the P_zeta the MS path (SingleFieldPerturbations) consumes,
+independently of the SIGW integration:
 
 * for quadratic chaotic inflation the numerically solved P_zeta(k) must have the
   analytic slow-roll tilt  n_s - 1 = -2/N  (a textbook result, no solver SR
@@ -9,8 +9,8 @@ integration:
 * the full MS spectrum must reduce to the solver's slow-roll formula in the
   slow-roll regime.
 
-The MS end-to-end Omega_GW regression and the OmegaGWms-vs-OmegaGWjax check live
-in test_omega_gw_regression / test_cross_backend.
+The MS end-to-end Omega_GW regression and the MS-vs-analytic cross-check live in
+test_omega_gw_regression / test_cross_backend.
 """
 
 import numpy as np
