@@ -434,6 +434,9 @@ class Kernel:
     k_dependent = False
     param_names = ()
     resonant_t = ()
+    # kernel params whose derivative needs finite differences (see
+    # ScalarPerturbations.nonsmooth_params); none for the current kernels.
+    nonsmooth_params = ()
     _default_norm = "RD"
 
     def __init__(self, norm=None):

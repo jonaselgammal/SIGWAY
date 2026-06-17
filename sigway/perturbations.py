@@ -34,6 +34,10 @@ class ScalarPerturbations:
     # jittable; the MS solver is not (it uses scipy splines internally), so the
     # integrator runs that path eagerly.
     jittable = True
+    # Parameters whose derivative needs finite differences rather than autodiff
+    # because they enter a step / integration limit (e.g. a heaviside cutoff
+    # kmax). OmegaGW.jacobian uses central differences for these.
+    nonsmooth_params = ()
 
     def __call__(self, k, *params):
         raise NotImplementedError
@@ -51,9 +55,10 @@ class ScalarPerturbations:
 class AnalyticPerturbations(ScalarPerturbations):
     """Closed-form P_zeta(k, *params) supplied as a callable."""
 
-    def __init__(self, func, param_names=()):
+    def __init__(self, func, param_names=(), nonsmooth_params=()):
         self.func = func
         self.param_names = tuple(param_names)
+        self.nonsmooth_params = tuple(nonsmooth_params)
 
     def __call__(self, k, *params):
         return self.func(k, *params)

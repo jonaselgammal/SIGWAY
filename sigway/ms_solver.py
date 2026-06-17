@@ -38,7 +38,6 @@ from sigway.utils import (
     wavenumber_from_efolds_si_units,
 )
 
-
 jax.config.update("jax_enable_x64", True)
 
 

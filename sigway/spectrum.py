@@ -75,6 +75,10 @@ class OmegaGW:
             )
         self.parameter_names = pz_names + k_names
         self._n_pz = len(pz_names)
+        # params whose jacobian column needs finite differences (step / limit)
+        self._nonsmooth = tuple(
+            getattr(perturbations, "nonsmooth_params", ())
+        ) + tuple(getattr(kernel, "nonsmooth_params", ()))
 
     def _split(self, theta):
         return tuple(theta[: self._n_pz]), tuple(theta[self._n_pz :])
@@ -100,12 +104,24 @@ class OmegaGW:
             res = jnp.interp(kvec_full, kvec, res)
         return self.kernel.norm(kvec_full) * res
 
-    def jacobian(self, f, theta):
-        """Jacobian d Omega_GW(f) / d theta via forward-mode autodiff.
+    def jacobian(self, f, theta, fd_params=None):
+        """Jacobian d Omega_GW(f) / d theta.
 
-        Correct for parameters that enter the integrand smoothly. Parameters
-        that move the integration limits (e.g. an eMD cutoff kmax) need the
-        dedicated derivative path and are not handled here.
+        Smooth parameters use forward-mode autodiff (jax.jacfwd). Parameters
+        that enter a step or an integration limit (e.g. an eMD cutoff kmax)
+        cannot be autodiffed correctly, so their column is computed with central
+        finite differences. ``fd_params`` (names) overrides which parameters get
+        the finite-difference treatment; by default it is the union of the
+        perturbation's and kernel's ``nonsmooth_params``.
+
+        Not available for the MS solver path (it is not differentiable).
         """
         theta = jnp.asarray(theta)
-        return jax.jacfwd(lambda th: self(f, *th))(theta)
+        jac = jax.jacfwd(lambda th: self(f, *th))(theta)
+        fd = self._nonsmooth if fd_params is None else fd_params
+        for name in fd:
+            i = self.parameter_names.index(name)
+            h = 1e-5 * max(abs(float(theta[i])), 1.0)
+            col = self(f, *theta.at[i].add(h)) - self(f, *theta.at[i].add(-h))
+            jac = jac.at[:, i].set(col / (2.0 * h))
+        return jac

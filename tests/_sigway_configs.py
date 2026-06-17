@@ -350,7 +350,9 @@ def perturbations_for(name):
         )
         return SingleFieldPerturbations(solver, ("a", "lam", "v", "nfac"))
     if name == "emd_imd2rd":
-        return AnalyticPerturbations(pzeta_heaviside2, ("As", "kmax"))
+        return AnalyticPerturbations(
+            pzeta_heaviside2, ("As", "kmax"), nonsmooth_params=("kmax",)
+        )
     cfg = ANALYTIC_CONFIGS[name]
     return AnalyticPerturbations(cfg["pzeta"], _PZ_NAMES[name])
 
