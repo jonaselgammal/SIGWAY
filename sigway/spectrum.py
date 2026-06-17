@@ -90,6 +90,13 @@ class OmegaGW:
                 raise ValueError(
                     "Pass parameters positionally or by keyword, not both."
                 )
+            extra = set(kw) - set(self.parameter_names)
+            missing = set(self.parameter_names) - set(kw)
+            if extra or missing:
+                raise ValueError(
+                    "Keyword parameters must match parameter_names exactly; "
+                    f"missing={sorted(missing)}, extra={sorted(extra)}."
+                )
             theta = tuple(kw[name] for name in self.parameter_names)
         theta_pz, theta_k = self._split(theta)
 
