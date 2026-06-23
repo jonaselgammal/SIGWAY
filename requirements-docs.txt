@@ -1,0 +1,5 @@
+mkdocs-material>=9.5
+pymdown-extensions>=10
+# finalized locally (need the package importable / jax):
+mkdocstrings[python]>=0.24
+mkdocs-jupyter>=0.24

@@ -168,3 +168,13 @@ _*/
 
 # Exclude perfetto traces
 trace/
+
+# docs build output & local design scratch
+site/
+logo/
+
+# keep brand/docs design assets tracked despite the global image ignores above
+!docs/assets/images/*.svg
+!docs/assets/images/*.png
+!docs/assets/images/*.ico
+!brand/*.svg
