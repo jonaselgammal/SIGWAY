@@ -81,8 +81,9 @@ nav:
   - API reference:
       - Overview: api/index.md
       - Spectrum (OmegaGW): api/spectrum.md
-      - Kernels: api/kernels.md
       - Perturbations: api/perturbations.md
+      - Kernels: api/kernels.md
       - Integrators: api/integrators.md
+      - Binned: api/binned_pzeta.md
       - MS solver: api/ms_solver.md
-  - Extensions: extensions/index.md
+      - Utilities: api/utils.md
