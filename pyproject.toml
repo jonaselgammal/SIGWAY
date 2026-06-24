@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sigway"
-version = "1.0.0"
+version = "1.0.1"
 description = "A package for computing scalar induced gravitational waves from inflation"
 readme = "README.md"
 # jax >= 0.8 (for jax.scipy.special.sici) requires Python >= 3.11.
