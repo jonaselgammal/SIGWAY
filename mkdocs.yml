@@ -1,0 +1,89 @@
+site_name: SIGWAY
+site_description: Scalar-Induced Gravitational Wave AnalYsis
+site_url: https://jonaselgammal.github.io/SIGWAY/
+repo_url: https://github.com/jonaselgammal/SIGWAY
+repo_name: jonaselgammal/SIGWAY
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  logo: assets/images/mark.svg
+  favicon: assets/images/favicon.svg
+  font:
+    text: Inter
+    code: JetBrains Mono
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle: { icon: material/weather-night, name: Switch to dark mode }
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle: { icon: material/weather-sunny, name: Switch to light mode }
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.instant
+    - navigation.tracking
+    - content.code.copy
+    - toc.follow
+
+extra_css:
+  - stylesheets/extra.css
+
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - footnotes
+  - toc:
+      permalink: true
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.details
+  - pymdownx.tabbed:
+      alternate_style: true
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: numpy
+            show_root_heading: true
+            show_source: false
+            heading_level: 2
+            separate_signature: true
+            merge_init_into_class: true
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - Installation: getting-started/installation.md
+      - Simple example: examples/simple_example.md
+      - Components tour: examples/advanced_example.md
+  - Theory & modelling: theory/index.md
+  - API reference:
+      - Overview: api/index.md
+      - Spectrum (OmegaGW): api/spectrum.md
+      - Perturbations: api/perturbations.md
+      - Kernels: api/kernels.md
+      - Integrators: api/integrators.md
+      - Binned: api/binned_pzeta.md
+      - MS solver: api/ms_solver.md
+      - Utilities: api/utils.md

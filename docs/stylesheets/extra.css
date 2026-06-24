@@ -1,0 +1,52 @@
+/* SIGWAY theme for MkDocs-Material */
+@import url('https://fonts.googleapis.com/css2?family=Righteous&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+
+/* ---------- LIGHT (default) ---------- */
+[data-md-color-scheme="default"] {
+  --md-primary-fg-color:        #20305f;
+  --md-primary-fg-color--light: #2c3f73;
+  --md-primary-fg-color--dark:  #16213f;
+  --md-accent-fg-color:         #2a6c9c;
+  --md-default-bg-color:        #f4ecd9;
+  --md-default-fg-color:        #20305f;
+  --md-typeset-a-color:         #2a6c9c;
+  --md-code-bg-color:           #faf6ea;
+}
+
+/* ---------- DARK (slate) ---------- */
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color:        #16213f;
+  --md-accent-fg-color:         #74b2dd;
+  --md-default-bg-color:        #0e1730;
+  --md-default-fg-color:        #f2ead6;
+  --md-typeset-a-color:         #74b2dd;
+  --md-code-bg-color:           #16213f;
+}
+
+/* brand headings in Righteous (applied to h1/h2 + header title; h3/h4 stay Inter for legibility) */
+.md-typeset h1, .md-typeset h2, .md-header__title {
+  font-family: 'Righteous', system-ui, sans-serif;
+  font-weight: 400;
+  letter-spacing: .3px;
+}
+
+/* subtle background watermark */
+.md-main {
+  background-image: url('../assets/images/bg_tile_light.svg');
+  background-repeat: repeat;
+}
+[data-md-color-scheme="slate"] .md-main {
+  background-image: url('../assets/images/bg_tile_dark.svg');
+}
+
+/* admonitions tuned to brand accents */
+.md-typeset .admonition.note,    .md-typeset details.note    { border-color: #3a8cc4; }
+.md-typeset .note > .admonition-title, .md-typeset .note > summary { background: #3a8cc41a; }
+.md-typeset .admonition.warning, .md-typeset details.warning { border-color: #e0455c; }
+.md-typeset .warning > .admonition-title, .md-typeset .warning > summary { background: #e0455c1a; }
+
+/* docs hero lockup */
+.sigway-hero { max-width: 520px; width: 100%; margin: 1rem 0 1.5rem; }
+
+/* example figures (light/dark variants) */
+.example-fig { max-width: 600px; width: 100%; display: block; margin: .6rem 0 1.4rem; }

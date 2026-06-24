@@ -1,3 +1,25 @@
+"""
+Numerical and unit-conversion helpers used across SIGWAY.
+
+Provides conversions between the comoving wavenumber $k$, the number of
+inflationary e-folds $N$, and the Hubble rate $H$, together with composite
+Simpson quadrature routines for uniform and non-uniform grids.
+"""
+
+__all__ = [
+    "wavenumber_from_efolds_si_units",
+    "efolds_from_wavenumber_si_units",
+    "H_from_wavenumber",
+    "simpson_uniform",
+    "simpson_uniform_even",
+    "simpson_uniform_odd",
+    "simpson_nonuniform",
+    "simpson_nonuniform_even",
+    "simpson_nonuniform_odd",
+    "do_broadcasting",
+    "no_broadcasting",
+]
+
 # Global
 import jax
 from jax import jit
@@ -20,26 +42,30 @@ SM_CG_factor = 0.39  # CG factor for the SM
 # Utils to convert between e-folds, wavenumber, and Hubble parameter
 @jit
 def wavenumber_from_efolds_si_units(N, H, N_CMB, H_CMB):
-    """
-    Calculate the wavenumber k as a function of the number of e-folds N and
-    the Hubble parameter H, normalized such that k=0.05 Mpc^-1 corresponds
-    to N_CMB_to_end e-folds before the end of inflation.
+    r"""
+    Convert inflationary e-folds $N$ and Hubble rate $H$ to comoving wavenumber $k$.
+
+    Uses the horizon-crossing relation
+    $k = k_\mathrm{CMB}\,(H/H_\mathrm{CMB})\,e^{N - N_\mathrm{CMB}}$,
+    where $k_\mathrm{CMB} = 0.05\,\mathrm{Mpc}^{-1}$ converted to SI units
+    ($\mathrm{s}^{-1}$).
 
     Parameters
     ----------
-    N : array-like
-        E-fold values.
-    H : array-like
-        Hubble parameter values (in some units) corresponding to the e-folds.
+    N : array_like
+        Inflationary e-fold values $N$.
+    H : array_like
+        Hubble parameter values in s^-1 evaluated at the corresponding $N$.
     N_CMB : float
-        Number of e-folds at the CMB scale.
+        E-fold value $N_\mathrm{CMB}$ at which the CMB pivot scale crosses
+        the horizon.
     H_CMB : float
-        Hubble parameter at the CMB scale (in the same units of H).
+        Hubble parameter $H_\mathrm{CMB}$ in s^-1 at the CMB pivot scale.
 
     Returns
     -------
-    k_N : array-like
-        Wavenumber as a function of e-folds and Hubble parameter.
+    k_N : jnp.ndarray
+        Comoving wavenumber $k$ in s^-1, with the same shape as `N` and `H`.
     """
     # Calculate the wavenumber k for each N and H
     k_N = CMB_scale_k * (H / H_CMB) * jnp.exp(N - N_CMB)
@@ -49,26 +75,29 @@ def wavenumber_from_efolds_si_units(N, H, N_CMB, H_CMB):
 
 @jit
 def efolds_from_wavenumber_si_units(k, H, N_CMB, H_CMB):
-    """
-    Calculate the number of e-folds N as a function of the wavenumber k and
-    the Hubble parameter H, normalized such that k=0.05 Mpc^-1 corresponds
-    to N_CMB_to_end e-folds before the end of inflation.
+    r"""
+    Convert comoving wavenumber $k$ and Hubble rate $H$ to inflationary e-folds $N$.
+
+    Inverts the horizon-crossing relation used in
+    `wavenumber_from_efolds_si_units`:
+    $N = N_\mathrm{CMB} + \ln\!\left[k\,/\,(k_\mathrm{CMB}\,H/H_\mathrm{CMB})\right]$.
 
     Parameters
     ----------
-    k : array-like
-        Wavenumber values in s^-1.
-    H : array-like
-        Hubble parameter values (in some units) corresponding to the k values.
+    k : array_like
+        Comoving wavenumber values $k$ in s^-1.
+    H : array_like
+        Hubble parameter values in s^-1 evaluated at the corresponding $k$.
     N_CMB : float
-        Number of e-folds at the CMB scale.
+        E-fold value $N_\mathrm{CMB}$ at which the CMB pivot scale crosses
+        the horizon.
     H_CMB : float
-        Hubble parameter at the CMB scale (in the same units of H).
+        Hubble parameter $H_\mathrm{CMB}$ in s^-1 at the CMB pivot scale.
 
     Returns
     -------
-    N : array-like
-        Number of e-folds as a function of wavenumber and Hubble parameter.
+    N : jnp.ndarray
+        Number of e-folds $N$, with the same shape as `k` and `H`.
     """
     # Calculate the number of e-folds N for each k
     N = N_CMB + jnp.log(k / (CMB_scale_k * (H / H_CMB)))
@@ -78,31 +107,31 @@ def efolds_from_wavenumber_si_units(k, H, N_CMB, H_CMB):
 
 @jit
 def H_from_wavenumber(k, N, H, N_CMB, H_CMB):
-    """
-    Calculate the Hubble parameter H as a function of wavenumber k using JAX.
-    First it computes the wavenumber k as a function of the number of e-folds N
-    and the Hubble parameter H, normalized such that k=0.05 Mpc^-1 corresponds
-    to N_CMB_to_end e-folds before the end of inflation. Then it sorts the
-    wavenumber k and Hubble parameter H values in ascending order and
-    interpolates the Hubble parameter as a function of wavenumber k.
+    r"""
+    Interpolate the Hubble rate $H$ as a function of comoving wavenumber $k$.
+
+    First maps the inflationary trajectory $(N, H)$ to a wavenumber array via
+    `wavenumber_from_efolds_si_units`, sorts it in ascending order, then
+    linearly interpolates $H$ at the requested $k$ values.
 
     Parameters
     ----------
-    k : array-like
-        Wavenumber values in s^-1 where we want the H evaluations.
-    N : array-like
-        E-fold values.
-    H : array-like
-        Hubble parameter values (in some units) corresponding to N values.
+    k : array_like
+        Comoving wavenumber values $k$ in s^-1 at which $H$ is evaluated.
+    N : array_like
+        Inflationary e-fold array describing the background trajectory.
+    H : array_like
+        Hubble parameter values in s^-1 corresponding to `N`.
     N_CMB : float
-        Number of e-folds at the CMB scale.
+        E-fold value $N_\mathrm{CMB}$ at which the CMB pivot scale crosses
+        the horizon.
     H_CMB : float
-        Hubble parameter at the CMB scale (in the same units of H).
+        Hubble parameter $H_\mathrm{CMB}$ in s^-1 at the CMB pivot scale.
 
     Returns
     -------
-    H_k : array-like
-        Hubble parameter as a function of wavenumber k.
+    H_k : jnp.ndarray
+        Hubble parameter $H(k)$ in s^-1, with the same shape as `k`.
     """
 
     # Calculate the wavenumber k as a function of N and H
@@ -122,8 +151,26 @@ def H_from_wavenumber(k, N, H, N_CMB, H_CMB):
 # Util for simpson integration
 @jax.jit
 def simpson_uniform_even(f, h):
-    """
-    Auxiliary function to compute simpson for an even number of intervals
+    r"""
+    Composite Simpson 1/3 rule for an even number of intervals.
+
+    Applies the standard composite Simpson formula
+    $\int f\,\mathrm{d}x \approx \tfrac{h}{3}(f_0 + 4f_1 + 2f_2 + \cdots + 4f_{N-1} + f_N)$
+    assuming $N$ (number of intervals) is even.  Called internally by
+    `simpson_uniform`; use that function directly unless you need fine-grained
+    control.
+
+    Parameters
+    ----------
+    f : jnp.ndarray, shape (N+1, ...)
+        Function values on a uniform grid.  Integration is over the first axis.
+    h : jnp.ndarray, shape (1,)
+        Uniform step size $h = x_1 - x_0$.
+
+    Returns
+    -------
+    result : jnp.ndarray, shape (...)
+        Approximate integral $\int f\,\mathrm{d}x$ over the remaining axes.
     """
 
     # Number of intervals
@@ -140,8 +187,25 @@ def simpson_uniform_even(f, h):
 # Util for simpson integration
 @jax.jit
 def simpson_uniform_odd(f, h):
-    """
-    Auxiliary function to compute simpson for an odd number of intervals
+    r"""
+    Composite Simpson 1/3 rule for an odd number of intervals.
+
+    Handles the case where the total number of intervals $N$ is odd by
+    treating the last (unpaired) interval with a higher-order correction
+    formula and applying the standard composite Simpson rule to the remaining
+    even number of intervals.  Called internally by `simpson_uniform`.
+
+    Parameters
+    ----------
+    f : jnp.ndarray, shape (N+1, ...)
+        Function values on a uniform grid.  Integration is over the first axis.
+    h : jnp.ndarray, shape (1,)
+        Uniform step size $h = x_1 - x_0$.
+
+    Returns
+    -------
+    result : jnp.ndarray, shape (...)
+        Approximate integral $\int f\,\mathrm{d}x$ over the remaining axes.
     """
 
     # factor to adjust the last interval
@@ -163,25 +227,45 @@ simpson_uniform_fun_list = [simpson_uniform_even, simpson_uniform_odd]
 
 @jit
 def simpson_uniform(f, x):
-    """
-    Fully vectorized implementation of Simpson's rule for a uniform grid.
-    See composite 1/3 rule in https://en.wikipedia.org/wiki/Simpson%27s_rule.
-    If f is a multi-dimensional array, the integration is performed over the
-    first axis. If the length of x is even (odd number of intervals), the
-    last interval is calculated with
-    https://en.wikipedia.org/wiki/Simpson%27s_rule#Composite_Simpson's_rule_for_irregularly_spaced_data.
-    For performance reasons, this function does not check whether the grid is
-    actually uniform.
+    r"""
+    Composite Simpson quadrature on a uniform grid.
 
-    Parameters:
-    - f: jax.numpy.ndarray, shape (N, ...)
-        Array of function values. Integration is performed over the first axis.
-    - x: jax.numpy.ndarray, shape (N,)
-        Array of grid points.
+    Implements the composite Simpson 1/3 rule (see
+    https://en.wikipedia.org/wiki/Simpson%27s_rule).  Integration is
+    always performed over the **first axis** of `f`; any remaining axes are
+    treated as independent integrals and are preserved in the output shape.
 
-    Returns:
-    - result: jax.numpy.ndarray
-        Array of integrated values.
+    When the number of intervals $N = \mathrm{len}(x) - 1$ is odd (i.e.
+    `len(x)` is even), the last interval is handled with the higher-order
+    correction from the irregularly-spaced variant so that the overall
+    method remains fourth-order accurate.  The grid is assumed uniform;
+    no uniformity check is performed for performance reasons.
+
+    Parameters
+    ----------
+    f : jnp.ndarray, shape (N+1, ...)
+        Function values at the grid points.  The first axis must match
+        ``len(x)``.
+    x : jnp.ndarray, shape (N+1,)
+        Uniformly spaced grid points.  Only the spacing
+        $h = x_1 - x_0$ is used internally.
+
+    Returns
+    -------
+    result : jnp.ndarray, shape (...)
+        Approximate integral $\int f(x)\,\mathrm{d}x$.  A scalar is
+        returned when `f` is one-dimensional.
+
+    Examples
+    --------
+    Integrate $\sin(x)$ from $0$ to $\pi$ (exact value: $2$):
+
+    >>> import jax.numpy as jnp
+    >>> from sigway.utils import simpson_uniform
+    >>> x = jnp.linspace(0, jnp.pi, 101)
+    >>> f = jnp.sin(x)
+    >>> float(simpson_uniform(f, x))
+    2.0000000108...
     """
     # Number of intervals
     N = f.shape[0] - 1
@@ -196,6 +280,28 @@ def simpson_uniform(f, x):
 
 
 def no_broadcasting(f, h):
+    r"""
+    Return step-size pairs for non-uniform Simpson without broadcasting.
+
+    Extracts alternating consecutive step-size pairs $(h_{2i}, h_{2i+1})$
+    from `h` without reshaping, for use when `f` and `x` have the same
+    shape (i.e. `x` is already broadcast-compatible with `f`).
+
+    Parameters
+    ----------
+    f : jnp.ndarray
+        Function values array (used only to determine dimensionality;
+        not modified).
+    h : jnp.ndarray, shape (N,)
+        Array of consecutive step sizes $h_i = x_{i+1} - x_i$.
+
+    Returns
+    -------
+    h0 : jnp.ndarray
+        Even-indexed step sizes $h_{0}, h_{2}, h_{4}, \ldots$
+    h1 : jnp.ndarray
+        Odd-indexed step sizes $h_{1}, h_{3}, h_{5}, \ldots$
+    """
     step = 2
 
     h0 = h[:-1:step]
@@ -205,6 +311,28 @@ def no_broadcasting(f, h):
 
 
 def do_broadcasting(f, h):
+    """
+    Return step-size pairs for non-uniform Simpson with broadcasting.
+
+    Extracts alternating consecutive step-size pairs $(h_{2i}, h_{2i+1})$
+    from `h` and reshapes them so they broadcast over all trailing axes of
+    `f`.  Used when `x` is one-dimensional but `f` is multi-dimensional.
+
+    Parameters
+    ----------
+    f : jnp.ndarray, shape (N+1, ...)
+        Function values array.  Its number of dimensions determines the
+        reshape target.
+    h : jnp.ndarray, shape (N,)
+        Array of consecutive step sizes $h_i = x_{i+1} - x_i$.
+
+    Returns
+    -------
+    h0 : jnp.ndarray, shape (N//2, 1, 1, ...)
+        Even-indexed step sizes reshaped for broadcasting against `f`.
+    h1 : jnp.ndarray, shape (N//2, 1, 1, ...)
+        Odd-indexed step sizes reshaped for broadcasting against `f`.
+    """
     step = 2
 
     broadcast_shape = (-1,) + (1,) * (len(f.shape) - 1)
@@ -219,10 +347,61 @@ broadcasting_list = [no_broadcasting, do_broadcasting]
 
 
 def simpson_nonuniform_even(f, h, result):
+    """
+    Pass-through for non-uniform Simpson when the interval count is even.
+
+    When the number of intervals $N$ is even, all intervals are already
+    covered by the main vectorised sum in `simpson_nonuniform` and no
+    correction is needed.  This function simply returns `result` unchanged,
+    serving as the even-branch of the ``jax.lax.switch`` inside
+    `simpson_nonuniform`.
+
+    Parameters
+    ----------
+    f : jnp.ndarray
+        Function values (unused; present for a uniform call signature).
+    h : jnp.ndarray
+        Step-size array (unused; present for a uniform call signature).
+    result : jnp.ndarray
+        Partial integral accumulated by `simpson_nonuniform`.
+
+    Returns
+    -------
+    result : jnp.ndarray
+        The input `result` unchanged.
+    """
     return result
 
 
 def simpson_nonuniform_odd(f, h, result):
+    r"""
+    Correction term for non-uniform Simpson when the interval count is odd.
+
+    Adds the contribution of the last unpaired interval using the
+    irregularly-spaced three-point correction formula:
+
+    $\Delta I = f_{N}\,\frac{2h_1^2 + 3h_0 h_1}{6(h_0+h_1)}
+              + f_{N-1}\,\frac{h_1^2 + 3h_1 h_0}{6h_0}
+              - f_{N-2}\,\frac{h_1^3}{6h_0(h_0+h_1)}$
+
+    where $h_0 = x_{N-1}-x_{N-2}$ and $h_1 = x_N - x_{N-1}$.  Called as
+    the odd-branch of the ``jax.lax.switch`` inside `simpson_nonuniform`.
+
+    Parameters
+    ----------
+    f : jnp.ndarray, shape (N+1, ...)
+        Function values on the non-uniform grid.
+    h : jnp.ndarray, shape (N,)
+        Consecutive step sizes $h_i = x_{i+1} - x_i$.
+    result : jnp.ndarray, shape (...)
+        Partial integral from `simpson_nonuniform` covering all but the
+        last interval.
+
+    Returns
+    -------
+    result : jnp.ndarray, shape (...)
+        Corrected integral including the final interval.
+    """
     h0 = h[-2]
     h1 = h[-1]
     result += f[-1] * (2 * h1**2 + 3 * h0 * h1) / (6 * (h0 + h1))
@@ -237,22 +416,34 @@ simpson_nonuniform_list = [simpson_nonuniform_even, simpson_nonuniform_odd]
 
 @jit
 def simpson_nonuniform(f, x):
-    """
-    Numerical integration using Simpson's rule on a non-uniform grid.
+    r"""
+    Composite Simpson quadrature on a non-uniform grid.
 
-    See composite 1/3 rule for irregularly spaced data in
-    https://en.wikipedia.org/wiki/Simpson%27s_rule.
+    Implements the composite irregularly-spaced Simpson 1/3 rule (see
+    https://en.wikipedia.org/wiki/Simpson%27s_rule#Composite_Simpson's_rule_for_irregularly_spaced_data).
+    Integration is always performed over the **first axis** of `f`; any
+    remaining axes are treated as independent integrals and are preserved
+    in the output.
 
-    This fully vectorized implementation is suitable for multi-dimensional
-    arrays, integrating over the first axis. Assumes non-uniformly spaced grid
-    points.
+    When the number of intervals $N = \mathrm{len}(x) - 1$ is odd, the
+    final unpaired interval is handled by `simpson_nonuniform_odd` using a
+    three-point correction that maintains fourth-order accuracy.
 
-    Parameters:
-    - f (jax.numpy.ndarray): Array of function values, shape (N, ...).
-    - x (jax.numpy.ndarray): Array of grid points, shape (N,) or same as 'f'.
+    Parameters
+    ----------
+    f : jnp.ndarray, shape (N+1, ...)
+        Function values at the grid points.  The first axis must match
+        ``len(x)``.
+    x : jnp.ndarray, shape (N+1,) or shape (N+1, ...)
+        Grid point coordinates.  When `x` has the same shape as `f`, step
+        sizes are used without reshaping; when `x` is one-dimensional,
+        step sizes are broadcast over the trailing axes of `f`.
 
-    Returns:
-    - jax.numpy.ndarray: Integrated values.
+    Returns
+    -------
+    result : jnp.ndarray, shape (...)
+        Approximate integral $\int f(x)\,\mathrm{d}x$.  A scalar is
+        returned when `f` is one-dimensional.
     """
 
     # Number of subintervals
