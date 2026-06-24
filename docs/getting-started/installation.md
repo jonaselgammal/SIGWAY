@@ -1,17 +1,22 @@
 # Installation
 
-SIGWAY is a pure-Python package built on JAX. There is no PyPI release yet, so install
-it **from source**.
+SIGWAY is a pure-Python package built on JAX.
 
 ## Requirements
 
-- Python ≥ 3.10
+- Python ≥ 3.11
 - [`jax`](https://jax.readthedocs.io), [`diffrax`](https://docs.kidger.site/diffrax/),
   `numpy`, `scipy`, `matplotlib` (pulled in automatically)
 
 ## Install
 
-Clone the repository and install in editable mode:
+From PyPI:
+
+```bash
+pip install sigway
+```
+
+To work on the code, install the development version from a clone in editable mode:
 
 ```bash
 git clone https://github.com/jonaselgammal/SIGWAY.git
@@ -19,8 +24,7 @@ cd SIGWAY
 pip install -e .
 ```
 
-Editable (`-e`) means changes to the source take effect without reinstalling — handy
-while the package is under active development.
+Editable (`-e`) means changes to the source take effect without reinstalling.
 
 !!! tip "Use float64"
     SIGW integrals span many orders of magnitude. Enable double precision **before** any

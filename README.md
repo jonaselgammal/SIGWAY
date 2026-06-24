@@ -1,8 +1,5 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/images/lockup_horizontal_dark.png">
-    <img alt="SIGWAY" src="docs/assets/images/lockup_horizontal.png" width="440">
-  </picture>
+  <img src="https://raw.githubusercontent.com/jonaselgammal/SIGWAY/main/docs/assets/images/full_logo.png" alt="SIGWAY" width="200">
 </p>
 
 <p align="center">
