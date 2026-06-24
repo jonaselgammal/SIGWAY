@@ -258,6 +258,7 @@ class Binned_P_zeta:
             * ``'RD'`` (default) — standard radiation-domination prefactor
               $C_G \Omega_R \approx 0.39 \times 4.2 \times 10^{-5}$, appropriate
               for GW production deep in the radiation era.
+            * ``'CT'`` — dimensionless prefactor (no $\Omega_R$ factor).
             * A callable ``norm(k) -> float`` for a custom
               frequency-dependent normalisation.
         backend : str, optional
