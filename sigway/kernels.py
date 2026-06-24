@@ -1,11 +1,28 @@
 """Kernel hierarchy for the scalar-induced GW transfer function.
 
-The module-level functions below are the jit-able numeric cores, kept as plain
-functions so the integrator can jit them with the kernel / perturbation
-callables as static arguments. The Kernel classes are thin wrappers that select
-the right core, declare the integration structure (k-dependence, resonant
-slices) and carry the normalisation.
+The module-level functions below are the JIT-able numeric cores, kept as plain
+functions so the integrator can JIT them with the kernel and perturbation
+callables as static arguments.  The [Kernel][sigway.kernels.Kernel] classes are
+thin wrappers that select the right core, declare the integration structure
+(k-dependence, resonant slices) and carry the normalisation.
+
+Public API
+----------
+Helper functions:
+    get_u, get_v, polynomial
+
+Kernel classes:
+    Kernel, RadiationKernel, InstantEMDKernel
 """
+
+__all__ = [
+    "get_u",
+    "get_v",
+    "polynomial",
+    "Kernel",
+    "RadiationKernel",
+    "InstantEMDKernel",
+]
 
 # Global
 import jax
@@ -30,58 +47,64 @@ NORM_PRESETS = {
 
 @jit
 def get_u(t, s):
-    """
-    Helper function to get u from s, t. To get this invert 4.19 of 2501.11320.
-    s should be in [-1,1], t should be in [0, infty].
+    """Compute the integration variable *u* from (*t*, *s*).
 
-    Parameters:
-    - t: jax.numpy.ndarray
-        Array of t values.
-    - s: jax.numpy.ndarray
-        Array of s values.
+    Inverts Eq. (4.19) of 2501.11320: ``u = (t + s + 1) / 2``.
 
-    Returns:
-    - jax.numpy.ndarray
-        Array of u values.
+    Parameters
+    ----------
+    t : jax.Array
+        Dimensionless time variable; lives in ``[0, inf)``.
+    s : jax.Array
+        Dimensionless momentum ratio; lives in ``[-1, 1]``.
+
+    Returns
+    -------
+    jax.Array
+        Array of *u* values with the same shape as the broadcast of *t* and *s*.
     """
     return (t + s + 1.0) / 2.0
 
 
 @jit
 def get_v(t, s):
-    """
-    Helper function to get v from s, t. To get this invert 4.19 of 2501.11320.
-    s should be in [-1,1], t should be in [0, infty].
+    """Compute the integration variable *v* from (*t*, *s*).
 
-    Parameters:
-    - t: jax.numpy.ndarray
-        Array of t values.
-    - s: jax.numpy.ndarray
-        Array of s values.
+    Inverts Eq. (4.19) of 2501.11320: ``v = (t - s + 1) / 2``.
 
-    Returns:
-    - jax.numpy.ndarray
-        Array of v values.
+    Parameters
+    ----------
+    t : jax.Array
+        Dimensionless time variable; lives in ``[0, inf)``.
+    s : jax.Array
+        Dimensionless momentum ratio; lives in ``[-1, 1]``.
+
+    Returns
+    -------
+    jax.Array
+        Array of *v* values with the same shape as the broadcast of *t* and *s*.
     """
     return (t - s + 1.0) / 2.0
 
 
 @jit
 def polynomial(t, s):
-    """
-    Polynomial term in the integrand for the Tensor power spectrum.
-    See 4.20 of 2501.11320.
-    Note that this term is k-independent.
+    """Geometric factor in the GW integrand (Eq. (4.20) of 2501.11320).
 
-    Parameters:
-    - t: jax.numpy.ndarray
-        Array of t values.
-    - s: jax.numpy.ndarray
-        Array of s values.
+    Evaluates the k-independent polynomial prefactor
+    ``2 * [t(2+t)(s^2-1) / ((1-s+t)(1+s+t))]^2``.
 
-    Returns:
-    - jax.numpy.ndarray
-        Array of polynomial values.
+    Parameters
+    ----------
+    t : jax.Array
+        Dimensionless time variable; lives in ``[0, inf)``.
+    s : jax.Array
+        Dimensionless momentum ratio; lives in ``[-1, 1]``.
+
+    Returns
+    -------
+    jax.Array
+        Polynomial values with the same shape as the broadcast of *t* and *s*.
     """
 
     numerator = t * (2.0 + t) * (s**2 - 1.0)
@@ -93,26 +116,31 @@ def polynomial(t, s):
 # Radiation domination all the way
 @jit
 def I_sq_RD_uv(t, s, k):
-    r"""
-    :math:`overline{I^2_{RD}(t, s, x\\to\\infty)}` assuming radiation
-    domination. Note that this term is k-independent.
+    r"""Oscillation-averaged RD kernel in (*u*, *v*) variables (testing only).
 
-    This function is written in terms of u and v to match eq. 4.21, 4.22 of
-    2501.11320. Notice that this is less stable numerically than I_sq_RD,
-    especially for large values of t! We keep it for testing but for all
-    computations use I_sq_RD.
+    Evaluates :math:`\overline{I^2_{\mathrm{RD}}(t,s,x\to\infty)}` under
+    pure radiation domination using the (*u*, *v*) form of Eqs. (4.21)–(4.22)
+    of 2501.11320.  The result is k-independent.
 
-    Parameters:
-    - t: jax.numpy.ndarray
-        Array of t values.
-    - s: jax.numpy.ndarray
-        Array of s values.
-    - k: jax.numpy.ndarray
-        Array of k values.
+    .. note::
+        This formulation is numerically less stable than ``I_sq_RD`` for large
+        *t*.  It is kept for cross-validation purposes only; all production
+        computations should use ``I_sq_RD``.
 
-    Returns:
-    - jax.numpy.ndarray
-        Array of :math:`overline{I^2_{RD}(t, s, x\\to\\infty)}` values.
+    Parameters
+    ----------
+    t : jax.Array
+        Dimensionless time variable.
+    s : jax.Array
+        Dimensionless momentum ratio.
+    k : jax.Array
+        Wave-number array (unused; accepted for a uniform call signature).
+
+    Returns
+    -------
+    jax.Array
+        :math:`\overline{I^2_{\mathrm{RD}}}` values, same shape as the
+        broadcast of *t* and *s*.
     """
     u = get_u(t, s)
     v = get_v(t, s)
@@ -133,25 +161,27 @@ def I_sq_RD_uv(t, s, k):
 # Radiation domination all the way
 @jit
 def I_sq_RD(t, s, k):
-    r"""
-    :math:`overline{I^2_{RD}(t, s, x\\to\\infty)}` assuming radiation
-    domination. Note that this term is k-independent.
+    r"""Oscillation-averaged RD kernel in (*t*, *s*) variables (production).
 
-    This function is written explicitly in terms of t and s.
-    The output of this function matches with the output of I_sq_RD_uv,
-    which is consistent with eq. 4.21, 4.22 of 2501.11320.
+    Evaluates :math:`\overline{I^2_{\mathrm{RD}}(t,s,x\to\infty)}` under
+    pure radiation domination, expressed directly in (*t*, *s*) for improved
+    numerical stability at large *t* (Eqs. (4.21)–(4.22) of 2501.11320).
+    The result is k-independent.
 
-    Parameters:
-    - t: jax.numpy.ndarray
-        Array of t values.
-    - s: jax.numpy.ndarray
-        Array of s values.
-    - k: jax.numpy.ndarray
-        Array of k values.
+    Parameters
+    ----------
+    t : jax.Array
+        Dimensionless time variable.
+    s : jax.Array
+        Dimensionless momentum ratio.
+    k : jax.Array
+        Wave-number array (unused; accepted for a uniform call signature).
 
-    Returns:
-    - jax.numpy.ndarray
-        Array of :math:`overline{I^2_{RD}(t, s, x\\to\\infty)}` values.
+    Returns
+    -------
+    jax.Array
+        :math:`\overline{I^2_{\mathrm{RD}}}` values, same shape as the
+        broadcast of *t* and *s*.
     """
 
     # This is IA**2 from eq. 4.21 of 2501.11320
@@ -185,24 +215,30 @@ def I_sq_RD(t, s, k):
 # UNUSED in favour of I_MD_TO_RD
 @jit
 def I_sq_MD(t, s, k):
-    """
-    :math:`overline{I^2_{RD}(t, s)}` assuming all modes are reentering
-    during the matter dominated era.
+    r"""Oscillation-averaged kernel for pure matter domination (unphysical).
 
-    Parameters:
-    - t: jax.numpy.ndarray
-        Array of t values.
-    - s: jax.numpy.ndarray
-        Array of s values.
-    - k: jax.numpy.ndarray
-        Array of k values.
+    Returns the constant :math:`\overline{I^2_{\mathrm{MD}}} = 18/25`,
+    independent of *t*, *s*, and *k*, corresponding to the limit where all
+    source modes re-enter during a matter-dominated era.
 
-    Returns:
-    - jax.numpy.ndarray
-        Array of :math:`overline{I^2_{RD}(t, s)}` values.
+    .. note::
+        This is an unphysical limiting case.  It is superseded by
+        ``I_sq_IRD_LV`` / ``I_sq_IRD_res`` for realistic EMD → RD scenarios
+        and is no longer used in production.
 
-    :Note:
-    This function is independent of t, s and k.
+    Parameters
+    ----------
+    t : jax.Array
+        Dimensionless time variable (unused).
+    s : jax.Array
+        Dimensionless momentum ratio (unused).
+    k : jax.Array
+        Wave-number array (unused).
+
+    Returns
+    -------
+    jax.Array
+        Scalar constant 18/25, broadcast to the shape of *t*.
     """
     return 18.0 / 25.0
 
@@ -216,17 +252,20 @@ def I_sq_MD(t, s, k):
 
 @jit
 def _sici_precomp(x):
-    r"""
-    Term containing Si and Ci functions in the Large V contribution to the
-    transitioning kernel: :math:`4\,Ci(x/2)^2 + (\pi - 2\,Si(x/2))^2`.
+    r"""Term :math:`4\,\mathrm{Ci}(x/2)^2 + (\pi - 2\,\mathrm{Si}(x/2))^2`.
 
-    Parameters:
-    - x: jax.numpy.ndarray
-        Array of x values.
+    Appears in the large-V contribution to the transitioning
+    (early-matter-domination → radiation) kernel.
 
-    Returns:
-    - jax.numpy.ndarray
-        Array of values.
+    Parameters
+    ----------
+    x : jax.Array
+        Argument array (typically ``k * etaR``).
+
+    Returns
+    -------
+    jax.Array
+        Values of the Si/Ci combination, same shape as *x*.
     """
     si, ci = sici(x / 2.0)
     return 4.0 * ci**2 + (jnp.pi - 2.0 * si) ** 2
@@ -234,18 +273,26 @@ def _sici_precomp(x):
 
 @jit
 def _d_sici_precomp(x):
-    """
-    Derivative with respect to x of :func:`_sici_precomp`. In closed form
-    (using Si'(y) = sin(y)/y, Ci'(y) = cos(y)/y with y = x/2) this is
-    (8 cos(x/2) Ci(x/2) - 4 sin(x/2) (pi - 2 Si(x/2))) / x.
+    r"""Derivative of ``_sici_precomp`` with respect to *x*.
 
-    Parameters:
-    - x: jax.numpy.ndarray
-        Array of x values.
+    Closed-form result using :math:`\mathrm{Si}'(y)=\sin(y)/y` and
+    :math:`\mathrm{Ci}'(y)=\cos(y)/y` with :math:`y = x/2`:
 
-    Returns:
-    - jax.numpy.ndarray
-        Array of derivative values.
+    .. math::
+
+        \frac{d}{dx}\bigl[4\,\mathrm{Ci}^2 + (\pi - 2\,\mathrm{Si})^2\bigr]
+        = \frac{8\cos(x/2)\,\mathrm{Ci}(x/2)
+                - 4\sin(x/2)\,(\pi - 2\,\mathrm{Si}(x/2))}{x}
+
+    Parameters
+    ----------
+    x : jax.Array
+        Argument array (typically ``k * etaR``).
+
+    Returns
+    -------
+    jax.Array
+        Derivative values, same shape as *x*.
     """
     si, ci = sici(x / 2.0)
     return (
@@ -263,26 +310,34 @@ def _d_sici_precomp(x):
 # the u ~ v >> 1 contribution, i.e. large t
 @jit
 def I_sq_IRD_LV(t, s, k, kmax, etaR):
-    r"""
-    :math:`overline{I^2_{\rm IRD, LV}(t, s, k, k_{\rm max}, \eta_R)}` for the
-    large V contribution to the transitioning kernel from an early matter
-    dominated era to radiation domination.
+    r"""Large-V contribution to the EMD → RD transitioning kernel.
 
-    Parameters:
-    - t: jax.numpy.ndarray
-        Array of t values.
-    - s: jax.numpy.ndarray
-        Array of s values.
-    - k: jax.numpy.ndarray
-        Array of k values.
-    - kmax: float
-        k value at which the transition occurs.
-    - etaR: float
-        Conformal time at the beginning of radiation domination.
+    Evaluates
+    :math:`\overline{I^2_{\mathrm{IRD,LV}}(t,s,k,k_{\max},\eta_R)}`,
+    the :math:`u \sim v \gg 1` (large-*t*) part of the oscillation-averaged
+    transfer function for the instantaneous EMD → RD transition.  The result
+    depends on *k* and *etaR* only through :math:`x_R = k\,\eta_R` and on the
+    ``_sici_precomp`` combination of Si/Ci functions.
 
-    Returns:
-    - jax.numpy.ndarray
-        Array of :math:`overline{I^2_{IRD}(t, s, k)}` values.
+    Parameters
+    ----------
+    t : jax.Array
+        Dimensionless time variable.
+    s : jax.Array
+        Dimensionless momentum ratio.
+    k : jax.Array
+        Wave-number (Mpc\ :sup:`-1`).
+    kmax : float
+        Source cutoff scale (Mpc\ :sup:`-1`); controls the valid (*s*, *t*)
+        domain via :math:`x_{\max,R} = k_{\max}\,\eta_R`.
+    etaR : float
+        Conformal time at the start of radiation domination (Mpc).
+
+    Returns
+    -------
+    jax.Array
+        :math:`\overline{I^2_{\mathrm{IRD,LV}}}` values, same shape as the
+        broadcast of *t*, *s*, and *k*.
     """
     xR = k * etaR
     xmaxR = kmax * etaR
@@ -309,32 +364,37 @@ def I_sq_IRD_LV(t, s, k, kmax, etaR):
 
 @jit
 def d_I_sq_IRD_LV(index, t, s, k, kmax, etaR):
-    """
-    Compute the analytical gradient of the large V contribution to the
-    transitioning kernel with respect to `kmax` or `etaR` based on `idx`.
+    """Analytical gradient of the large-V EMD → RD kernel.
 
-    .. note::
-    The gradient w.r.t `kmax` is zero even though the kernel depends on it
-    through the integration limits. This is handled in the integration function.
+    Returns the partial derivative of ``I_sq_IRD_LV`` with respect to either
+    *kmax* (``index=0``) or *etaR* (``index=1``).
 
-    Parameters:
-    - index: int
-        Index of the parameter to differentiate with respect to
-        (0 for kmax, 1 for etaR).
-    - t: jax.numpy.ndarray
-        Array of t values.
-    - s: jax.numpy.ndarray
-        Array of s values.
-    - k: jax.numpy.ndarray
-        Array of k values.
-    - kmax: float
-        k value at which the transition occurs.
-    - etaR: float
-        Conformal time at the beginning of radiation domination.
+    Notes
+    -----
+    The gradient with respect to *kmax* is identically zero *within* the
+    kernel body: *kmax* only affects the integration domain boundaries, not the
+    integrand itself.  That boundary contribution is handled separately by the
+    integration function.
 
-    Returns:
-    - jax.numpy.ndarray
-        Array of gradient values.
+    Parameters
+    ----------
+    index : int
+        Selects the differentiation target: ``0`` → *kmax*, ``1`` → *etaR*.
+    t : jax.Array
+        Dimensionless time variable.
+    s : jax.Array
+        Dimensionless momentum ratio.
+    k : jax.Array
+        Wave-number (Mpc\ :sup:`-1`).
+    kmax : float
+        Source cutoff scale (Mpc\ :sup:`-1`).
+    etaR : float
+        Conformal time at the start of radiation domination (Mpc).
+
+    Returns
+    -------
+    jax.Array
+        Gradient values, same shape as the broadcast of *t*, *s*, and *k*.
     """
     result = I_sq_IRD_LV(t, s, k, kmax, etaR)
     xR = k * etaR
@@ -349,29 +409,34 @@ def d_I_sq_IRD_LV(index, t, s, k, kmax, etaR):
 # the resonant contribution when u+v ~ 1/c_s, or t = sqrt(3) - 1
 @jit
 def I_sq_IRD_res(t, s, k, kmax, etaR):
-    r"""
-    :math:`overline{I^2_{\rm IRD, res}(t, s, k, \eta_R)}` for the resonant
-    contribution to the transitioning kernel from an early matter dominated era
-    to the radiation domination era.
+    r"""Resonant contribution to the EMD → RD transitioning kernel.
 
-    Parameters:
-    - t: jax.numpy.ndarray
-        Array of t values.
-    - s: jax.numpy.ndarray
-        Array of s values.
-    - k: jax.numpy.ndarray
-        Array of k values.
-    - kmax: float
-        k value at which the transition occurs.
-    - etaR: float
-        Conformal time at the beginning of radiation domination. (???)
+    Evaluates
+    :math:`\overline{I^2_{\mathrm{IRD,res}}(t,s,k,\eta_R)}`, the resonant
+    slice of the transitioning kernel arising when
+    :math:`u + v \approx 1/c_s`, i.e. at :math:`t = \sqrt{3} - 1`.  The Ci
+    amplitude is approximated by ``7.97727 / xR``.
 
-    Returns:
-    - jax.numpy.ndarray
-        Array of :math:`overline{I^2_{IRD}(t, s, k)}` values.
+    Parameters
+    ----------
+    t : jax.Array
+        Dimensionless time variable (should be evaluated near
+        :math:`\sqrt{3} - 1` for the resonance to contribute).
+    s : jax.Array
+        Dimensionless momentum ratio.
+    k : jax.Array
+        Wave-number (Mpc\ :sup:`-1`).
+    kmax : float
+        Source cutoff scale (Mpc\ :sup:`-1`); accepted for call-signature
+        uniformity but not used in this function.
+    etaR : float
+        Conformal time at the start of radiation domination (Mpc).
 
-    :Note:
-    This part of the kernel
+    Returns
+    -------
+    jax.Array
+        :math:`\overline{I^2_{\mathrm{IRD,res}}}` values, same shape as the
+        broadcast of *t*, *s*, and *k*.
     """
     fudge = 2.3
     xR = k * etaR
@@ -385,28 +450,32 @@ def I_sq_IRD_res(t, s, k, kmax, etaR):
 
 @jit
 def d_I_sq_IRD_res(index, t, s, k, kmax, etaR):
-    """
-    Compute the analytical gradient of the resonant contribution to the
-    transitioning kernel with respect to `kmax` or `etaR` based on `idx`.
+    """Analytical gradient of the resonant EMD → RD kernel.
 
-    Parameters:
-    - index: int
-        Index of the parameter to differentiate with respect to
-        (0 for kmax, 1 for etaR).
-    - t: jax.numpy.ndarray
-        Array of t values.
-    - s: jax.numpy.ndarray
-        Array of s values.
-    - k: jax.numpy.ndarray
-        Array of k values.
-    - kmax: float
-        k value at which the transition occurs.
-    - etaR: float
-        Conformal time at the beginning of radiation domination.
+    Returns the partial derivative of ``I_sq_IRD_res`` with respect to either
+    *kmax* (``index=0``) or *etaR* (``index=1``).  The gradient with respect
+    to *kmax* is identically zero; the gradient with respect to *etaR* is
+    ``7 / etaR * I_sq_IRD_res``.
 
-    Returns:
-    - jax.numpy.ndarray
-        Array of gradient values.
+    Parameters
+    ----------
+    index : int
+        Selects the differentiation target: ``0`` → *kmax*, ``1`` → *etaR*.
+    t : jax.Array
+        Dimensionless time variable.
+    s : jax.Array
+        Dimensionless momentum ratio.
+    k : jax.Array
+        Wave-number (Mpc\ :sup:`-1`).
+    kmax : float
+        Source cutoff scale (Mpc\ :sup:`-1`).
+    etaR : float
+        Conformal time at the start of radiation domination (Mpc).
+
+    Returns
+    -------
+    jax.Array
+        Gradient values, same shape as the broadcast of *t*, *s*, and *k*.
     """
     # Get the main result using the provided function
     result = I_sq_IRD_res(t, s, k, kmax, etaR)
@@ -425,10 +494,48 @@ def d_I_sq_IRD_res(index, t, s, k, kmax, etaR):
 class Kernel:
     """Base class for SIGW transfer-function kernels.
 
-    Subclasses provide ``overline_Isq`` (the oscillation-averaged transfer
-    function) and declare their integration structure. ``norm(k)`` returns the
-    full Omega_GW prefactor and is set at construction: a sensible default per
-    kernel, overridable with a preset name, a constant, or a callable.
+    A [Kernel][sigway.kernels.Kernel] encapsulates the oscillation-averaged
+    transfer-function squared,
+    :math:`\overline{I^2}(t,s,k,\ldots)`, for a particular cosmological
+    history (radiation domination, EMD → RD, etc.).  Subclasses implement
+    ``overline_Isq`` and, when there is a resonant contribution,
+    ``overline_Isq_resonant``; they also declare the integration metadata
+    (``k_dependent``, ``param_names``, ``resonant_t``).
+
+    The ``norm(k)`` method returns the full :math:`\Omega_{\rm GW}` prefactor,
+    including the factor of 2 that the legacy integrator applied separately.
+    The normalisation is fixed at construction time and can be overridden via
+    the *norm* argument.
+
+    Parameters
+    ----------
+    norm : str, float, or callable, optional
+        Normalisation specification.  A string must be one of the preset keys
+        (``'RD'``, ``'CT'``, ``'bare'``); a float is used as a constant; a
+        callable must accept a wave-number array *k* and return the prefactor.
+        Defaults to the subclass ``_default_norm``.
+
+    Attributes
+    ----------
+    k_dependent : bool
+        Whether the kernel depends on *k* (and therefore requires a separate
+        evaluation per *k* value).
+    param_names : tuple of str
+        Names of any extra kernel parameters (e.g. ``('etaR',)``).
+    resonant_t : tuple of float
+        Fixed *t* values at which the kernel has a resonant contribution that
+        must be integrated separately.
+    nonsmooth_params : tuple of str
+        Kernel parameters whose gradient cannot be obtained via JAX
+        auto-differentiation (finite differences required).
+    norm_spec : str, float, or callable
+        The normalisation specification passed at construction, stored for
+        introspection.
+
+    Raises
+    ------
+    ValueError
+        If *norm* is a string that is not a recognised preset.
     """
 
     k_dependent = False
@@ -457,38 +564,165 @@ class Kernel:
         self.norm_spec = spec
 
     def norm(self, k):
-        """Full Omega_GW prefactor (includes the legacy factor of 2)."""
+        r"""Return the :math:`\Omega_{\rm GW}` prefactor evaluated at *k*.
+
+        The value folds in the factor of 2 that the legacy integrator applied
+        separately.  For the ``'RD'`` preset this equals
+        ``c_g * Omega_r,0 / 12``; for ``'CT'`` / ``'bare'`` it is ``1/12``.
+
+        Parameters
+        ----------
+        k : array-like
+            Wave-number array (Mpc\ :sup:`-1`).
+
+        Returns
+        -------
+        float or jax.Array
+            Normalisation value(s) with the same shape as *k*.
+        """
         return self._norm(k)
 
     def overline_Isq(self, t, s, k, *kparams):
+        """Oscillation-averaged transfer-function squared (smooth part).
+
+        Parameters
+        ----------
+        t : jax.Array
+            Dimensionless time variable.
+        s : jax.Array
+            Dimensionless momentum ratio.
+        k : jax.Array
+            Wave-number (Mpc\ :sup:`-1`).
+        *kparams :
+            Additional kernel parameters listed in ``param_names``
+            (e.g. *etaR* for [InstantEMDKernel][sigway.kernels.InstantEMDKernel]).
+
+        Returns
+        -------
+        jax.Array
+            :math:`\overline{I^2}` values.
+
+        Raises
+        ------
+        NotImplementedError
+            Must be implemented by subclasses.
+        """
         raise NotImplementedError
 
     def overline_Isq_resonant(self, t, s, k, *kparams):
+        """Oscillation-averaged transfer-function squared (resonant slice).
+
+        Called at the fixed *t* values listed in ``resonant_t``.  Kernels
+        without a resonant contribution do not need to override this method.
+
+        Parameters
+        ----------
+        t : jax.Array
+            Dimensionless time variable (typically pinned to a value in
+            ``resonant_t``).
+        s : jax.Array
+            Dimensionless momentum ratio.
+        k : jax.Array
+            Wave-number (Mpc\ :sup:`-1`).
+        *kparams :
+            Additional kernel parameters listed in ``param_names``.
+
+        Returns
+        -------
+        jax.Array
+            :math:`\overline{I^2_{\rm res}}` values.
+
+        Raises
+        ------
+        NotImplementedError
+            Must be implemented by subclasses that declare ``resonant_t``.
+        """
         raise NotImplementedError
 
 
 class RadiationKernel(Kernel):
-    """Radiation-domination kernel (k-independent)."""
+    """Kernel for a universe in pure radiation domination throughout.
+
+    Uses ``I_sq_RD`` to evaluate the oscillation-averaged transfer function
+    :math:`\overline{I^2_{\mathrm{RD}}(t,s,x\to\infty)}` (Eqs. (4.21)–(4.22)
+    of 2501.11320).  The kernel is k-independent and has no resonant
+    contribution.
+
+    The default normalisation preset is ``'RD'`` (today's astrophysical value
+    ``c_g * Omega_r,0 / 12``).
+
+    Parameters
+    ----------
+    norm : str, float, or callable, optional
+        Normalisation override; see [Kernel][sigway.kernels.Kernel].
+        Defaults to ``'RD'``.
+    """
 
     k_dependent = False
     param_names = ()
     _default_norm = "RD"
 
     def overline_Isq(self, t, s, k, *kparams):
+        """Return the RD oscillation-averaged kernel via ``I_sq_RD``.
+
+        Parameters
+        ----------
+        t : jax.Array
+            Dimensionless time variable.
+        s : jax.Array
+            Dimensionless momentum ratio.
+        k : jax.Array
+            Wave-number (Mpc\ :sup:`-1`; unused, accepted for uniformity).
+        *kparams :
+            Ignored (no extra kernel parameters for this kernel).
+
+        Returns
+        -------
+        jax.Array
+            :math:`\overline{I^2_{\mathrm{RD}}}` values.
+        """
         return I_sq_RD(t, s, k)
 
 
 class InstantEMDKernel(Kernel):
-    """Instant early-matter-domination -> radiation kernel (k-dependent).
+    """Kernel for an instantaneous early-matter-domination → RD transition.
 
-    Two contributions: a smooth large-V part integrated over (s, t) and a
-    resonant slice at t = sqrt(3) - 1.
+    Models a scenario where the universe undergoes an early matter-dominated
+    era that ends abruptly at conformal time *etaR*, after which it evolves
+    in radiation domination.  The oscillation-averaged transfer function has
+    two distinct contributions:
 
-    Only ``etaR`` is a kernel parameter: this implementation depends on k and
-    etaR (via xR = k * etaR), not on kmax. The transition scale kmax is the
-    *source* cutoff, owned by the (heaviside) ScalarPerturbations, and also sets
-    the t-grid range. (The underlying cores still take a kmax slot, which this
-    implementation ignores, so we pass a dummy 0.0.)
+    1. **Smooth (large-V) part** — integrated over the full (*s*, *t*) domain
+       via ``I_sq_IRD_LV`` (``overline_Isq``).
+    2. **Resonant slice** at :math:`t = \sqrt{3} - 1` (i.e. :math:`u + v =
+       1/c_s`) — integrated separately via ``I_sq_IRD_res``
+       (``overline_Isq_resonant``).
+
+    The kernel is k-dependent through :math:`x_R = k\,\eta_R`.
+
+    The transition scale *kmax* is a *source* cutoff owned by the perturbation
+    object (typically a heaviside ``ScalarPerturbations``); it also sets the
+    upper limit of the *t*-integration grid.  The underlying numeric cores
+    (``I_sq_IRD_LV``, ``I_sq_IRD_res``) accept a *kmax* argument, but this
+    kernel passes ``0.0`` because domain clipping based on *kmax* is handled
+    externally.
+
+    The default normalisation preset is ``'CT'`` (dimensionless, ``1/12``).
+
+    Parameters
+    ----------
+    norm : str, float, or callable, optional
+        Normalisation override; see [Kernel][sigway.kernels.Kernel].
+        Defaults to ``'CT'``.
+
+    Attributes
+    ----------
+    k_dependent : bool
+        Always ``True`` for this kernel.
+    param_names : tuple of str
+        ``('etaR',)`` — *etaR* must be supplied as a kernel parameter.
+    resonant_t : tuple of float
+        ``(sqrt(3) - 1,)`` — the single resonant integration slice.
     """
 
     k_dependent = True
@@ -497,7 +731,43 @@ class InstantEMDKernel(Kernel):
     _default_norm = "CT"
 
     def overline_Isq(self, t, s, k, etaR):
+        """Return the smooth (large-V) EMD → RD kernel via ``I_sq_IRD_LV``.
+
+        Parameters
+        ----------
+        t : jax.Array
+            Dimensionless time variable.
+        s : jax.Array
+            Dimensionless momentum ratio.
+        k : jax.Array
+            Wave-number (Mpc\ :sup:`-1`).
+        etaR : float
+            Conformal time at the start of radiation domination (Mpc).
+
+        Returns
+        -------
+        jax.Array
+            :math:`\overline{I^2_{\mathrm{IRD,LV}}}` values.
+        """
         return I_sq_IRD_LV(t, s, k, 0.0, etaR)
 
     def overline_Isq_resonant(self, t, s, k, etaR):
+        """Return the resonant EMD → RD kernel via ``I_sq_IRD_res``.
+
+        Parameters
+        ----------
+        t : jax.Array
+            Dimensionless time variable (evaluated at :math:`\sqrt{3} - 1`).
+        s : jax.Array
+            Dimensionless momentum ratio.
+        k : jax.Array
+            Wave-number (Mpc\ :sup:`-1`).
+        etaR : float
+            Conformal time at the start of radiation domination (Mpc).
+
+        Returns
+        -------
+        jax.Array
+            :math:`\overline{I^2_{\mathrm{IRD,res}}}` values.
+        """
         return I_sq_IRD_res(t, s, k, 0.0, etaR)

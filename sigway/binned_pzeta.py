@@ -1,4 +1,6 @@
 # Global
+__all__ = ["Binned_P_zeta"]
+
 import os
 import numpy as np
 import jax.numpy as jnp
@@ -42,6 +44,51 @@ def upsample_f_linear(f, fk, Omega_GW):
 
 
 class Binned_P_zeta:
+    """Model-independent (template-free) gravitational-wave spectrum from a
+    binned primordial power spectrum.
+
+    The primordial curvature power spectrum P_zeta is parameterised as
+    free log10-amplitudes ``A_0, A_1, ..., A_{n-1}`` in ``n`` logarithmically
+    spaced k-bins.  The corresponding scalar-induced GW energy-density spectrum
+    Omega_GW(f) is computed directly from a set of precomputed bilinear
+    coefficients ``C_mij`` (one per output frequency bin ``m`` and pair of
+    P_zeta bins ``i, j``) via
+
+        Omega_GW[m] = norm(f_m) * sum_{i,j} C_mij * A_i * A_j,
+
+    where ``A_i = 10^theta_i``.  This bypasses the kernel and (s, t) integral
+    used by [OmegaGW][sigway.spectrum.OmegaGW], making evaluation cheap once
+    the coefficients have been loaded.
+
+    The public interface mirrors [OmegaGW][sigway.spectrum.OmegaGW]:
+    ``parameter_names`` returns an ordered tuple of parameter names, calling
+    the instance as ``model(f, *theta)`` returns Omega_GW(f), and
+    ``jacobian(f, theta)`` returns the gradient with respect to the bin
+    log-amplitudes.
+
+    Attributes
+    ----------
+    fk : numpy.ndarray
+        Frequency grid on which ``C_mij`` is defined (output frequencies).
+    fp : numpy.ndarray
+        Frequency grid of the P_zeta bins (input frequencies).
+    C_mij : jaxlib.xla_extension.ArrayImpl
+        Precomputed bilinear coefficient tensor of shape
+        ``(len(fk), len(fp), len(fp))``.
+    knum : int
+        Number of output frequency bins (length of ``fk``).
+    pnum : int
+        Number of P_zeta bins (length of ``fp``).
+    parameterNames : dict
+        Ordered mapping of parameter names to LaTeX labels,
+        e.g. ``{'A_0': '$A_0$', ...}``.
+    norm : callable
+        Normalisation function applied to Omega_GW; set at construction time.
+    d1 : callable
+        Alias for ``dtemplate_default``, provided for compatibility with
+        external inference code.
+    """
+
     def __init__(
         self,
         model_name,
@@ -51,32 +98,40 @@ class Binned_P_zeta:
         norm="RD",
         backend="jax",
     ):
-        """
-        Just a mini wrapper to make the Omega_GW class compatible with
-        SGWBinner. This seems to be all that's required.
-        For binned P_zeta. we need to pass the C_mij, fk, and fp.
+        """Initialise ``Binned_P_zeta`` by loading precomputed coefficients.
 
         Parameters
         ----------
         model_name : str
-            the name of the model.
+            Internal name of the model, stored as ``self._model``.
         model_label : str
-            the label of the model.
-        nbins : int, optional (default=50)
-            the number of bins to be used (the grid they are computed on is
-            `nbins`x`nbins`x`nbins`) which corresponds to the two internal
-            momenta and the external momentum. Currently available options are
-            10, 20, 30, 40, 50, 100 and 200.
-            If `path_to_C` is not None, this parameter is ignored.
-        path_to_C : str or None, optional (default=None)
-            file name of the coefficent file containing C_mij, fk, and fp.
-            If None the pre-computed values are used.
-        norm : str or callable, optional (default='RD')
-            the normalisation to use. If a string, must be 'RD'.
-            If a callable, must be a function that takes a frequency and
-            returns a normalisation.
-        backend : str
-            the backend to use. Currently always 'jax'.
+            Human-readable label for the model, stored as
+            ``self._model_label``.
+        nbins : int, optional
+            Number of P_zeta bins.  The coefficient file must have been
+            precomputed for this value; shipped options are 10, 20, 30, 40,
+            50, 100, and 200.  Ignored when ``path_to_C`` is provided.
+            Default is ``50``.
+        path_to_C : str or None, optional
+            Path to a custom coefficient file containing ``C_mij``, ``fk``,
+            and ``fp``.  When ``None`` the file bundled with the package for
+            the requested ``nbins`` is used.  Default is ``None``.
+        norm : str or callable, optional
+            Normalisation applied to Omega_GW.  Pass ``'RD'`` (default) for
+            the standard radiation-domination prefactor
+            ``C_G * Omega_R ~ 0.39 * 4.2e-5``; pass a callable
+            ``norm(k) -> float`` for a custom frequency-dependent
+            normalisation.
+        backend : str, optional
+            Computation backend.  Currently only ``'jax'`` is supported.
+            Default is ``'jax'``.
+
+        Raises
+        ------
+        FileNotFoundError
+            If no coefficient file exists for the requested ``nbins`` (when
+            ``path_to_C`` is ``None``) or if the path given by ``path_to_C``
+            does not point to an existing file.
         """
         # Constants
         OMEGA_R = 4.2 * 10 ** (-5)
@@ -131,12 +186,61 @@ class Binned_P_zeta:
         self.d1 = self.dtemplate_default
 
     def template(self, fvec, *A):
+        """Evaluate Omega_GW on an arbitrary frequency grid.
+
+        Converts the supplied log10-amplitudes to linear amplitudes, contracts
+        them against the precomputed coefficient tensor ``C_mij`` to obtain
+        Omega_GW on the internal frequency grid ``fk``, then interpolates
+        (log-linearly in both axes) to the requested output frequencies.  The
+        result is multiplied by the normalisation function ``self.norm``.
+
+        Parameters
+        ----------
+        fvec : array_like
+            Output frequencies in Hz at which Omega_GW is evaluated.
+        *A : float
+            Log10-amplitudes of the P_zeta bins, i.e. ``theta_i`` such that
+            the linear amplitude in bin ``i`` is ``10**A[i]``.  The number of
+            values must equal ``self.pnum``.
+
+        Returns
+        -------
+        jaxlib.xla_extension.ArrayImpl
+            Omega_GW evaluated at each frequency in ``fvec``, same shape as
+            ``fvec``.
+        """
         kvec = fvec * 2 * jnp.pi
         A = 10.0 ** (jnp.array(A))
         omega = compute_omega_gw(self.C_mij, A)
         return self.norm(kvec) * upsample_f(kvec, self.fk, omega)
 
     def dtemplate_default(self, index, fvec, *A):
+        """Partial derivative of Omega_GW with respect to a single bin
+        log-amplitude.
+
+        Computes ``d Omega_GW / d theta_index`` analytically from the
+        coefficient tensor via ``2 * sum_j C_mij[:,j,index] * A_j`` (linear
+        amplitudes), then interpolates linearly to ``fvec`` and applies the
+        normalisation.  Linear (not log-linear) interpolation is used here to
+        avoid issues with zero crossings in the derivative.
+
+        Parameters
+        ----------
+        index : int
+            Index of the bin parameter with respect to which the derivative is
+            taken (0-based, must be in ``[0, pnum)``).
+        fvec : array_like
+            Output frequencies in Hz.
+        *A : float
+            Log10-amplitudes of all P_zeta bins (same convention as
+            ``template``).
+
+        Returns
+        -------
+        jaxlib.xla_extension.ArrayImpl
+            ``d Omega_GW / d theta_index`` evaluated at each frequency in
+            ``fvec``, same shape as ``fvec``.
+        """
         kvec = fvec * 2 * jnp.pi
         A = 10.0 ** (jnp.array(A))
         domega = compute_domega_gw(self.C_mij, index, A)
@@ -149,15 +253,62 @@ class Binned_P_zeta:
     # or (s, t) integral, so it does not go through OmegaGW). ---
     @property
     def parameter_names(self):
-        """Ordered bin log-amplitude names, like OmegaGW.parameter_names."""
+        """Ordered tuple of bin log-amplitude parameter names.
+
+        Returns a tuple of strings such as ``('A_0', 'A_1', ..., 'A_{n-1}')``
+        where ``n`` equals ``self.pnum``.  The ordering matches the expected
+        order of ``*theta`` in ``__call__`` and ``jacobian``, and is identical
+        in spirit to the ``parameter_names`` property of
+        [OmegaGW][sigway.spectrum.OmegaGW].
+
+        Returns
+        -------
+        tuple of str
+            Parameter names for the bin log-amplitudes.
+        """
         return tuple(self.parameterNames)
 
     def __call__(self, f, *theta):
-        """Omega_GW(f) for bin amplitudes theta."""
+        """Evaluate Omega_GW(f) from bin log-amplitudes.
+
+        Thin wrapper around ``template`` that provides the callable interface
+        expected by inference code (equivalent to
+        [OmegaGW][sigway.spectrum.OmegaGW]``.__call__``).
+
+        Parameters
+        ----------
+        f : array_like
+            Frequencies in Hz at which Omega_GW is evaluated.
+        *theta : float
+            Log10-amplitudes of the P_zeta bins (``A_0, A_1, ..., A_{n-1}``).
+
+        Returns
+        -------
+        jaxlib.xla_extension.ArrayImpl
+            Omega_GW evaluated at each frequency in ``f``.
+        """
         return self.template(f, *theta)
 
     def jacobian(self, f, theta):
-        """d Omega_GW(f) / d theta, stacked from the per-bin derivative."""
+        """Gradient of Omega_GW with respect to all bin log-amplitudes.
+
+        Calls ``dtemplate_default`` for each bin index and stacks the results
+        along the last axis, producing the full Jacobian matrix.  This matches
+        the ``jacobian`` interface of [OmegaGW][sigway.spectrum.OmegaGW].
+
+        Parameters
+        ----------
+        f : array_like
+            Frequencies in Hz at which the Jacobian is evaluated.
+        theta : array_like
+            Log10-amplitudes of all P_zeta bins, shape ``(pnum,)``.
+
+        Returns
+        -------
+        jaxlib.xla_extension.ArrayImpl
+            Array of shape ``(len(f), pnum)`` where entry ``[m, i]`` is
+            ``d Omega_GW(f_m) / d theta_i``.
+        """
         return jnp.stack(
             [self.dtemplate_default(i, f, *theta) for i in range(len(theta))],
             axis=-1,

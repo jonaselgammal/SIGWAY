@@ -1,8 +1,8 @@
 """Top-level user-facing model: Omega_GW(f) from a kernel + perturbations.
 
-``OmegaGW`` composes a :class:`~sigway.kernels.Kernel`, a
-:class:`~sigway.perturbations.ScalarPerturbations` and an
-:class:`~sigway.integrators.Integrator` (default Simpson). It owns the
+[OmegaGW][sigway.spectrum.OmegaGW] composes a [Kernel][sigway.kernels.Kernel],
+a [ScalarPerturbations][sigway.perturbations.ScalarPerturbations] and an
+[Integrator][sigway.integrators.Integrator] (default Simpson). It owns the
 inference API: a single ordered ``parameter_names`` vector (perturbation params
 then kernel params, with a clear error on name collision), a
 ``__call__(f, *theta)``
@@ -14,6 +14,8 @@ that routes theta to the right component and applies ``kernel.norm``, and a
 compiles once and re-runs without retracing at fixed array shapes.
 """
 
+__all__ = ["OmegaGW"]
+
 import jax
 import jax.numpy as jnp
 
@@ -23,6 +25,13 @@ from sigway.integrators import SimpsonIntegrator
 class OmegaGW:
     """Scalar-induced GW spectrum model.
 
+    Composes a [Kernel][sigway.kernels.Kernel],
+    a [ScalarPerturbations][sigway.perturbations.ScalarPerturbations], and an
+    [Integrator][sigway.integrators.Integrator] into a callable that evaluates
+    Omega_GW(f) for a given parameter vector. Exposes a unified
+    ``parameter_names`` tuple (perturbation parameters first, then kernel
+    parameters) and a ``jacobian`` method for Fisher-matrix forecasts.
+
     Parameters
     ----------
     perturbations : ScalarPerturbations
@@ -30,15 +39,41 @@ class OmegaGW:
     kernel : Kernel
         The transfer-function kernel (carries its own normalisation).
     integrator : Integrator, optional
-        Integration strategy; defaults to ``SimpsonIntegrator(s, t)`` built from
-        ``s`` and ``t`` if those are given instead.
-    s, t : array or callable, optional
-        Convenience: if ``integrator`` is not given, a SimpsonIntegrator is
-        built from these grids (callables receive ``(kvec, *theta)``).
+        Integration strategy; defaults to a
+        [SimpsonIntegrator][sigway.integrators.SimpsonIntegrator] built from
+        ``s`` and ``t`` if those are provided instead.
+    s : array or callable, optional
+        First integration-grid argument passed to
+        [SimpsonIntegrator][sigway.integrators.SimpsonIntegrator] when
+        ``integrator`` is not given. Callables receive ``(kvec, *theta)``.
+    t : array or callable, optional
+        Second integration-grid argument passed to
+        [SimpsonIntegrator][sigway.integrators.SimpsonIntegrator] when
+        ``integrator`` is not given. Callables receive ``(kvec, *theta)``.
     f : array, optional
-        Target frequencies (used only when ``upsample`` is True).
+        Fixed frequency grid used for integration when ``upsample`` is True.
+        Results are then interpolated onto the call frequencies.
     upsample : bool, optional
-        If True, integrate on ``f`` and interpolate onto the call frequencies.
+        If True, integrate on the fixed ``f`` grid and interpolate onto the
+        frequencies passed at call time. Requires ``f`` to be set.
+
+    Attributes
+    ----------
+    perturbations : ScalarPerturbations
+        The curvature power spectrum object supplied at construction.
+    kernel : Kernel
+        The transfer-function kernel object supplied at construction.
+    integrator : Integrator
+        The integration strategy (either supplied directly or built from
+        ``s`` and ``t``).
+    f : jax.Array or None
+        Fixed frequency grid for upsampling, or None.
+    upsample : bool
+        Whether upsampling is active.
+    parameter_names : tuple of str
+        Ordered parameter names: perturbation parameters followed by kernel
+        parameters. No duplicates are allowed; a ``ValueError`` is raised on
+        name collision at construction time.
     """
 
     def __init__(
@@ -87,6 +122,36 @@ class OmegaGW:
         return tuple(theta[: self._n_pz]), tuple(theta[self._n_pz :])
 
     def __call__(self, f, *theta, **kw):
+        """Evaluate Omega_GW at the given frequencies.
+
+        Parameters are routed to the perturbation and kernel components in the
+        order defined by ``parameter_names``. The kernel's normalisation factor
+        is applied to the integration result before returning.
+
+        Parameters
+        ----------
+        f : array-like
+            Frequencies in Hz at which to evaluate Omega_GW.
+        *theta : float
+            Model parameters in the order given by ``parameter_names``
+            (perturbation parameters first, then kernel parameters). Mutually
+            exclusive with keyword arguments.
+        **kw : float
+            Alternative to positional ``*theta``: supply parameters by name.
+            All names in ``parameter_names`` must be provided; extras raise a
+            ``ValueError``. Mutually exclusive with positional ``*theta``.
+
+        Returns
+        -------
+        jax.Array
+            Omega_GW evaluated at each frequency in ``f``, shape ``(len(f),)``.
+
+        Raises
+        ------
+        ValueError
+            If both positional and keyword parameters are supplied, or if the
+            keyword arguments do not match ``parameter_names`` exactly.
+        """
         if kw:
             if theta:
                 raise ValueError(
@@ -115,16 +180,41 @@ class OmegaGW:
         return self.kernel.norm(kvec_full) * res
 
     def jacobian(self, f, theta, fd_params=None):
-        """Jacobian d Omega_GW(f) / d theta.
+        """Compute the Jacobian d Omega_GW(f) / d theta.
 
-        Smooth parameters use forward-mode autodiff (jax.jacfwd). Parameters
-        that enter a step or an integration limit (e.g. an eMD cutoff kmax)
-        cannot be autodiffed correctly, so their column is computed with central
-        finite differences. ``fd_params`` (names) overrides which parameters get
-        the finite-difference treatment; by default it is the union of the
-        perturbation's and kernel's ``nonsmooth_params``.
+        Smooth parameters use forward-mode autodiff (``jax.jacfwd``). Parameters
+        that enter a step function or an integration limit (e.g. an eMD cutoff
+        kmax) cannot be differentiated correctly by autodiff, so their column is
+        replaced by a central finite-difference estimate. The set of
+        finite-difference parameters defaults to the union of
+        ``perturbations.nonsmooth_params`` and ``kernel.nonsmooth_params``;
+        pass ``fd_params`` to override this.
 
-        Not available for the MS solver path (it is not differentiable).
+        Not available when ``perturbations`` is not JAX-jittable (e.g. the MS
+        solver path).
+
+        Parameters
+        ----------
+        f : array-like
+            Frequencies in Hz, shape ``(N,)``.
+        theta : array-like
+            Parameter vector in the order given by ``parameter_names``,
+            shape ``(len(parameter_names),)``.
+        fd_params : sequence of str, optional
+            Names of parameters to differentiate with central finite differences
+            instead of autodiff. Defaults to the union of
+            ``perturbations.nonsmooth_params`` and ``kernel.nonsmooth_params``.
+
+        Returns
+        -------
+        jax.Array
+            Jacobian matrix of shape ``(N, len(parameter_names))``, where entry
+            ``[i, j]`` is d Omega_GW(f[i]) / d theta[j].
+
+        Raises
+        ------
+        ValueError
+            If ``perturbations`` is not JAX-jittable (e.g. the MS solver path).
         """
         if not getattr(self.perturbations, "jittable", True):
             raise ValueError(

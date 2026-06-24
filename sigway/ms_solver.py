@@ -1,7 +1,21 @@
-# Module that computes the solution of the Mukhanov-Sasaki equation for a given
-# potential and initial conditions. First the background evolution is computed,
-# then compatibilty with CMB observations is checked, and finally the
-# perturbations are computed.
+"""
+Single-field Mukhanov-Sasaki solver.
+
+Solves the inflationary background and Mukhanov-Sasaki perturbation equations
+for a single-field slow-roll (or ultra-slow-roll) model given a JAX-compatible
+potential ``V(phi, *params)``. The background ODE is integrated first; an
+optional consistency check against CMB observables is then performed; finally
+the scalar power spectrum P_zeta(k) is computed via mode-by-mode integration
+of the perturbation equations.
+
+Public API
+----------
+- [SingleFieldSolver][sigway.ms_solver.SingleFieldSolver]
+- [SolverOptions][sigway.ms_solver.SolverOptions]
+- [ConsistencyError][sigway.ms_solver.ConsistencyError]
+"""
+
+__all__ = ["SingleFieldSolver", "SolverOptions", "ConsistencyError"]
 
 # Global
 import jax
@@ -43,7 +57,12 @@ jax.config.update("jax_enable_x64", True)
 
 # Create an Exception class for consistency checks
 class ConsistencyError(Exception):
-    pass
+    """Raised when a physical consistency check fails during solving.
+
+    Typical triggers include insufficient e-folds to reach the CMB scale, or
+    too few e-folds remaining to evolve perturbations across the required
+    sub- and super-horizon window.
+    """
 
 
 @partial(jax.jit, static_argnums=(0, 1, 2, 4))
@@ -346,9 +365,28 @@ def _run_perturbations(
     return Pzeta_by_V0
 
 
-SolverOptions = namedtuple(
+class SolverOptions(namedtuple(
     "SolverOptions", ["rtol", "atol", "max_steps", "dt0", "saveat"]
-)
+)):
+    """Named tuple holding ODE solver configuration for diffrax.
+
+    Used separately for the background and perturbation solvers via the
+    ``background_solver_opts`` and ``perturbation_solver_opts`` constructor
+    arguments of [SingleFieldSolver][sigway.ms_solver.SingleFieldSolver].
+
+    Attributes
+    ----------
+    rtol : float
+        Relative tolerance for the adaptive step-size (PID) controller.
+    atol : float
+        Absolute tolerance for the adaptive step-size (PID) controller.
+    max_steps : int
+        Maximum number of ODE steps before the solver gives up.
+    dt0 : float
+        Initial step size in e-folds.
+    saveat : diffrax.SaveAt
+        Diffrax ``SaveAt`` object specifying which solution points to store.
+    """
 
 
 @jit
@@ -357,64 +395,77 @@ def interpolation_inner(knew, k, coeff):
 
 
 class SingleFieldSolver:
-    """
-    This class solves the Mukhanov-Sasaki equation for a single field model
-    with a given potential.The potential must be passed as a callable function
-    that takes the field value as input and returns the potential energy at that
-    point. The initial conditions are given by the field value and its
-    derivative at the initial time.
+    """Solves the Mukhanov-Sasaki equation for a single-field inflationary model.
+
+    Given a JAX-compatible potential ``V(phi, *params)``, this class integrates
+    the background Klein-Gordon + Friedmann equations and then solves the
+    Mukhanov-Sasaki perturbation equations mode by mode to compute the
+    dimensionful scalar power spectrum P_zeta(k).
+
+    Calling ``solver.run(k, *params)`` returns a callable ``P_zeta(k_new)``
+    that interpolates the computed spectrum.  Calling the instance directly
+    (``solver(k, *params)``) returns the raw P_zeta array evaluated at ``k``.
 
     Parameters
     ----------
-    V : function
-        The potential function for the field, must be compatible with JAX.
+    V : callable
+        Potential function ``V(phi, *params)``.  Must be JAX-traceable
+        (i.e. compatible with ``jax.jit`` and ``jax.grad``).
     phi0 : float, optional
-        Initial value of the field, by default 0.0.
+        Initial field value.  Also used as the normalisation point for the
+        internal rescaled potential ``U = V / V(phi0)``.  Default ``0.0``.
     pi0 : float, optional
-        Initial value of the field's momentum, by default 0.0.
+        Initial field momentum (currently stored but not used to set the
+        background initial conditions, which are instead fixed by slow-roll
+        attractor values).  Default ``0.0``.
     N_CMB_to_end : float, optional
-        Number of e-folds from the CMB to the end of inflation, by default 55.0.
+        Number of e-folds from the CMB pivot scale to the end of inflation,
+        assuming instantaneous reheating.  Default ``65.0``.
     max_efolds : float, optional
-        Maximum number of e-folds to run the background evolution,
-        by default 1000.0.
+        Maximum number of e-folds for the background integration.
+        Default ``1000.0``.
     cmb_bounds : dict, optional
-        Dictionary containing the means and covariance of the CMB bounds,
-        by default {}.
+        Dictionary with keys ``"means"`` (array of shape ``(3,)``) and
+        ``"cov"`` (array of shape ``(3, 3)``) encoding Gaussian CMB
+        observational constraints on
+        ``[ln(10^10 P_zeta), n_s, r]``.
+        Used only when ``check_consistency=True``.  Defaults to Planck-like
+        values if not provided.
     check_consistency : bool, optional
-        Flag to check consistency with CMB bounds, by default False.
+        If ``True``, evaluate the log-likelihood against ``cmb_bounds`` at
+        the CMB scale after the background run.  Currently informational only
+        (the result is not used to gate the perturbation run).
+        Default ``False``.
     N_subhorizon : float, optional
-        Number of e-folds to run the subhorizon perturbations, by default 7.0.
+        Number of e-folds before horizon crossing at which to initialise
+        each perturbation mode (Bunch-Davies vacuum initial conditions).
+        Default ``3.0``.
     N_suphorizon : float, optional
-        Number of e-folds to run the superhorizon perturbations, by default 7.0.
-    k : array-like, optional
-        Array of wavenumbers to compute the power spectrum, by default None.
+        Number of e-folds after horizon crossing at which to freeze each
+        perturbation mode and read off the power spectrum.  Default ``7.0``.
+    k : array-like or callable or None, optional
+        Wavenumber grid used for upsampled output.  Only relevant when
+        ``upsample=True``.  Default ``None``.
     upsample : bool, optional
-        Flag to upsample the power spectrum, by default False.
-        If upsample=True, k must be provided.
+        If ``True``, interpolate the computed power spectrum onto the ``k``
+        grid.  Requires ``k`` to be provided.  Default ``False``.
     background_solver_opts : dict, optional
-        Options for the background solver. If not explicitly provided,
-        the default options are used:
-        - rtol : 1e-8. Relative tolerance for the adaptive step size controller.
-        - atol : 1e-8. Absolute tolerance for the adaptive step size controller.
-        - max_steps : 100000. Maximum number of steps for the solver.
-        - dt0 : 1e-3. Initial step size (in e-folds).
-        - saveat : {"steps": True}. Save the solution at each step.
-        :bold:`Warning:` only change this option if you know what you are doing.
+        Override fields of the default [SolverOptions][sigway.ms_solver.SolverOptions]
+        for the background ODE solver.  Defaults:
+        ``rtol=1e-8``, ``atol=1e-8``, ``max_steps=100000``,
+        ``dt0=1e-3``, ``saveat=SaveAt(steps=True)``.
+        **Warning:** only change these if you know what you are doing.
     perturbation_solver_opts : dict, optional
-        Options for the perturbation solver.
-        If not explicitly provided, the default options are used:
-        - rtol : 1e-6. Relative tolerance for the adaptive step size controller.
-        - atol : 1e-6. Absolute tolerance for the adaptive step size controller.
-        - max_steps : 1000000. Maximum number of steps for the solver.
-        - dt0 : 1e-3. Initial step size (in e-folds).
-        - saveat : {"t1": True}.
-        Only return the solution at :math:`N_{\text{out}}`.
-        :bold:`Warning:` only change this option if you know what you are doing.
-        If you set "steps": True this will slow down things considerably.
+        Override fields of the default [SolverOptions][sigway.ms_solver.SolverOptions]
+        for the perturbation ODE solver.  Defaults:
+        ``rtol=1e-6``, ``atol=1e-6``, ``max_steps=1000000``,
+        ``dt0=1e-3``, ``saveat=SaveAt(t1=True)`` (only the final value is
+        stored).  Setting ``saveat=SaveAt(steps=True)`` will considerably
+        slow down the computation.
+        **Warning:** only change these if you know what you are doing.
     error_on_fail : bool, optional
-        Flag to raise an error if the perturbation solver fails,
-        by default False.
-
+        If ``True``, raise an error when the perturbation solver fails for a
+        given mode.  Default ``False``.
     """
 
     def __init__(
@@ -558,24 +609,28 @@ class SingleFieldSolver:
             )
 
     def run_background(self, params):
-        """
-        Run the background evolution of the field.
+        """Integrate the inflationary background equations.
+
+        Solves the background Klein-Gordon and Friedmann equations from
+        N = 0 until inflation ends (epsilon_H >= 1) or ``max_efolds`` is
+        reached.  The internal rescaled variables are returned; in particular
+        ``h`` is the Hubble parameter normalised by sqrt(V(phi0) / 3).
 
         Parameters
         ----------
         params : tuple
-            Parameters for the potential function.
+            Parameters forwarded to the potential ``V(phi, *params)``.
 
         Returns
         -------
-        N : array-like
-            Array of e-folds.
-        phi : array-like
-            Array of field values.
-        y : array-like
-            Array of field derivatives with respect to e-folds.
-        h : array-like
-            Array of Hubble parameter values.
+        N : numpy.ndarray
+            E-fold values at each saved solver step.
+        phi : numpy.ndarray
+            Field values at each saved step.
+        y : numpy.ndarray
+            Field derivative d phi / dN at each saved step.
+        h : numpy.ndarray
+            Rescaled Hubble parameter at each saved step.
         """
         bsol = _run_background(
             self.Ud,
@@ -593,31 +648,38 @@ class SingleFieldSolver:
         return N, phi, y, h
 
     def run_perturbations(self, k, N, phi, y, h, params):
-        """
-        Run the perturbation evolution and compute the power spectrum.
+        """Run the perturbation solver over all wavenumbers and return P_zeta.
+
+        Uses ``jax.vmap`` to integrate the Mukhanov-Sasaki equations for each
+        mode in ``k`` in parallel.  Initial conditions (Bunch-Davies vacuum)
+        are set ``N_subhorizon`` e-folds before horizon crossing; the mode
+        amplitude is read off ``N_suphorizon`` e-folds after horizon crossing.
 
         Parameters
         ----------
         k : array-like
-            Array of wavenumbers.
+            Wavenumber grid (in s^-1).
         N : array-like
-            Array of e-folds from the background evolution.
+            E-fold array from the background evolution.
         phi : array-like
-            Array of field values from the background evolution.
+            Field values from the background evolution, same shape as ``N``.
         y : array-like
-            Array of field derivatives with respect to e-folds from the
-            background evolution.
+            Field derivatives d phi / dN from the background evolution.
         h : array-like
-            Array of Hubble parameter values from the background evolution.
+            Rescaled Hubble parameter values from the background evolution.
         params : tuple
-            Parameters for the potential function.
+            Parameters forwarded to the potential ``V(phi, *params)``.
 
         Returns
         -------
-        Pzetas : array-like
-            Power spectrum of the perturbations.
-        Nk : array-like
-            Corresponding e-folds for the power spectrum.
+        numpy.ndarray
+            Dimensionful scalar power spectrum P_zeta, shape ``(len(k),)``.
+
+        Raises
+        ------
+        ConsistencyError
+            If the background does not contain enough e-folds to reach the CMB
+            scale, or to evolve the perturbations across the required window.
         """
         N_CMB = jnp.max(N) - self.N_CMB_to_end
         if N_CMB < 0.0:
@@ -664,34 +726,41 @@ class SingleFieldSolver:
         return Pzetas
 
     def run_single_k(self, k, N, phi, y, h, params):
-        """
-        Run the perturbation evolution for a single wavenumber k. Returns the
-        diffrax solution object and the log of the ratio of the wavenumber to
-        the scale factor (lograt).
+        """Solve the perturbation equations for a single wavenumber, saving all steps.
+
+        Unlike `run_perturbations`, this method forces ``saveat=SaveAt(steps=True)``
+        so the full time series of the mode function is available for
+        inspection or plotting.
 
         Parameters
         ----------
-        k : array-like
-            Array of wavenumbers.
+        k : float
+            Single wavenumber (in s^-1) to integrate.
         N : array-like
-            Array of e-folds from the background evolution.
+            E-fold array from the background evolution.
         phi : array-like
-            Array of field values from the background evolution.
+            Field values from the background evolution.
         y : array-like
-            Array of field derivatives with respect to e-folds from the
-            background evolution.
+            Field derivatives d phi / dN from the background evolution.
         h : array-like
-            Array of Hubble parameter values from the background evolution.
+            Rescaled Hubble parameter from the background evolution.
         params : tuple
-            Parameters for the potential function.
+            Parameters forwarded to the potential ``V(phi, *params)``.
 
         Returns
         -------
-        diffrax.diffeqsolve.Solution
-            The solution of the differential equations containing the evolution
-            of the perturbations over the specified number of e-folds.
-        float
-            log(k/a) at nin.
+        sol : diffrax.Solution
+            Full ODE solution object with shape ``(steps, 7)`` state array
+            containing ``[phi, y, h, dPhiR, dPhiR', dPhiI, dPhiI']`` at each
+            saved step.
+        lograt : float
+            log(k / aH) evaluated at the initial e-fold ``Nin``.
+
+        Raises
+        ------
+        ConsistencyError
+            If there are insufficient e-folds to reach the CMB scale or to
+            evolve the mode across the required window.
         """
         N_CMB = jnp.max(N) - self.N_CMB_to_end
         if N_CMB < 0.0:
@@ -735,27 +804,32 @@ class SingleFieldSolver:
         return sol, lograt
 
     def p_at_cmb(self, N, phi, y, h, params):
-        """
-        Calculate the likelihood of the parameters given the CMB constraints.
+        """Evaluate the Gaussian log-likelihood at the CMB pivot scale.
+
+        Interpolates the background trajectory to the CMB scale (at
+        ``N_end - N_CMB_to_end``), computes the slow-roll observables
+        ``[ln(10^10 P_zeta), n_s, r]``, and evaluates the multivariate
+        Gaussian log-probability against ``cmb_means`` / ``cmb_cov``.
 
         Parameters
         ----------
         N : array-like
-            Array of e-folds from the background evolution.
+            E-fold array from the background evolution.
         phi : array-like
-            Array of field values from the background evolution.
+            Field values from the background evolution.
         y : array-like
-            Array of field derivatives with respect to e-folds from the
-            background evolution.
+            Field derivatives d phi / dN from the background evolution.
         h : array-like
-            Array of Hubble parameter values from the background evolution.
+            Rescaled Hubble parameter from the background evolution.
         params : tuple
-            Parameters for the potential function.
+            Parameters forwarded to the potential ``V(phi, *params)``.
 
         Returns
         -------
-        float
-            Log-likelihood of the parameters given the CMB constraints.
+        p : float
+            Multivariate-Gaussian log-likelihood of the CMB observables.
+        params_at_cmb : numpy.ndarray
+            Array ``[ln(10^10 P_zeta), n_s, r]`` evaluated at the CMB scale.
         """
         Nend = jnp.max(N)
         N_cmb = Nend - self.N_CMB_to_end
@@ -779,124 +853,122 @@ class SingleFieldSolver:
         return p, params_at_cmb
 
     def pzeta_sr(self, y, h, params):
-        r"""
-        Calculate the value of P_{\zeta}(N) in the slow-roll approximation using
-        the H-version of the slow roll parameters as a function of the number
-        of e-folds.
+        r"""Slow-roll approximation for the scalar power spectrum P_zeta.
+
+        Computes $P_\zeta \approx V({\phi_0}) \, h^2 / (4\pi^2 \, y^2)$
+        using the Hubble slow-roll parameter $\epsilon_H = y^2 / 2$.
 
         Parameters
         ----------
-        y : float
-            The value of y.
-        h : float
-            The value of h.
+        y : float or array-like
+            Rescaled field derivative d phi / dN.
+        h : float or array-like
+            Rescaled Hubble parameter (same shape as ``y``).
         params : tuple
-            Parameters for the potential function.
+            Parameters forwarded to the potential ``V(phi, *params)``.
 
         Returns
         -------
-        float
-            The calculated value of P_{\zeta}.
+        float or numpy.ndarray
+            Slow-roll estimate of the dimensionful scalar power spectrum
+            P_zeta.
         """
         return self.V(self.phi0, *params) * h**2 / (8 * jnp.pi**2 * y**2 / 2)
 
     def epsilon_h(self, y):
-        r"""
-        Calculate the first slow-roll parameter :math:`\epsilon_H`.
-        This is the Hubble version of the slow-roll parameter.
+        r"""Compute the first Hubble slow-roll parameter $\epsilon_H = y^2 / 2$.
 
         Parameters
         ----------
-        y : float
-            The value of y.
+        y : float or array-like
+            Rescaled field derivative d phi / dN.
 
         Returns
         -------
-        float
-            The first slow-roll parameter.
+        float or numpy.ndarray
+            First Hubble slow-roll parameter $\epsilon_H$.
         """
         return y**2 / 2
 
     def eta_h(self, phi, y, h, params):
-        r"""
-        Calculate the second slow-roll parameter :math:`\eta_H`.
-        This is the Hubble version of the slow-roll parameter.
+        r"""Compute the second Hubble slow-roll parameter $\eta_H$.
 
         Parameters
         ----------
-        phi : float
-            The value of the field.
-        y : float
-            The value of y.
-        h : float
-            The value of h.
+        phi : float or array-like
+            Inflaton field value.
+        y : float or array-like
+            Rescaled field derivative d phi / dN (same shape as ``phi``).
+        h : float or array-like
+            Rescaled Hubble parameter (same shape as ``phi``).
         params : tuple
-            Parameters for the potential function.
+            Parameters forwarded to the potential ``V(phi, *params)``.
 
         Returns
         -------
-        float
-            The second slow-roll parameter.
+        float or numpy.ndarray
+            Second Hubble slow-roll parameter $\eta_H$.
         """
         eps = self.epsilon_h(y)
         return -6 + 2 * eps - self.Ud(phi, *params) * y / (eps * h**2)
 
     def n_s(self, epsilon_h, eta_h):
-        """
-        Calculate the scalar spectral index.
+        """Compute the scalar spectral index in the slow-roll approximation.
 
         Parameters
         ----------
-        epsilon_h : float
-            The first slow-roll parameter.
-        eta_h : float
-            The second slow-roll parameter.
+        epsilon_h : float or array-like
+            First Hubble slow-roll parameter.
+        eta_h : float or array-like
+            Second Hubble slow-roll parameter.
 
         Returns
         -------
-        float
-            The scalar spectral index.
+        float or numpy.ndarray
+            Scalar spectral index $n_s = 1 - 2\epsilon_H - \eta_H$.
         """
         return 1 - 2 * epsilon_h - eta_h
 
     def r(self, epsilon_h):
-        """
-        Calculate the tensor-to-scalar ratio.
+        """Compute the tensor-to-scalar ratio in the slow-roll approximation.
 
         Parameters
         ----------
-        epsilon_h : float
-            The first slow-roll parameter.
+        epsilon_h : float or array-like
+            First Hubble slow-roll parameter.
 
         Returns
         -------
-        float
-            The tensor-to-scalar ratio.
+        float or numpy.ndarray
+            Tensor-to-scalar ratio $r = 16\epsilon_H$.
         """
         return 16 * epsilon_h
 
     def run(self, k, *params):
-        r"""
-        Compute the power spectrum P_{\zeta}(k) for a given set of parameters.
-        Used by the Omega_GW class.
+        r"""Compute P_zeta(k) and return a callable interpolant.
+
+        Runs the background evolution, optionally checks CMB consistency, then
+        solves the Mukhanov-Sasaki equations for each wavenumber in ``k``.
+        The result is fitted with a cubic Hermite interpolant so that the
+        returned callable can be evaluated at arbitrary wavenumbers inside the
+        original ``k`` range.
+
+        This is the entry point used by
+        [SingleFieldPerturbations][sigway.perturbations.SingleFieldPerturbations].
 
         Parameters
         ----------
         k : array-like
-            Array of wavenumbers.
-        params : tuple
-            Parameters for the potential function.
+            Wavenumber grid (in s^-1) at which to solve the perturbation
+            equations.
+        *params : float
+            Scalar parameters forwarded to the potential ``V(phi, *params)``.
 
         Returns
         -------
-        N : array-like
-            Array of e-folds.
-        Nk : array-like
-            Array of e-folds for the perturbations.
-        Pzeta_sr : array-like
-            Power spectrum in the slow-roll approximation.
-        P_zeta : array-like
-            Computed power spectrum of the perturbations.
+        callable
+            A function ``P_zeta_interpolation(k_new)`` that evaluates the
+            cubic-Hermite interpolant of P_zeta at wavenumbers ``k_new``.
         """
         params = jnp.array(params)
         # Compute background evolution
@@ -918,27 +990,24 @@ class SingleFieldSolver:
         return P_zeta_interpolation
 
     def __call__(self, k, *params):
-        r"""
-        Compute the power spectrum P_{\zeta}(k) for a given set of parameters.
-        Used by the Omega_GW class.
+        r"""Compute and return the raw P_zeta array evaluated at ``k``.
+
+        Equivalent to `run` but returns the power-spectrum values directly
+        rather than an interpolating callable.
 
         Parameters
         ----------
         k : array-like
-            Array of wavenumbers.
-        params : tuple
-            Parameters for the potential function.
+            Wavenumber grid (in s^-1) at which to solve the perturbation
+            equations.
+        *params : float
+            Scalar parameters forwarded to the potential ``V(phi, *params)``.
 
         Returns
         -------
-        N : array-like
-            Array of e-folds.
-        Nk : array-like
-            Array of e-folds for the perturbations.
-        Pzeta_sr : array-like
-            Power spectrum in the slow-roll approximation.
-        P_zeta : array-like
-            Computed power spectrum of the perturbations.
+        numpy.ndarray
+            Dimensionful scalar power spectrum P_zeta evaluated at each
+            wavenumber in ``k``.
         """
         params = jnp.array(params)
         # Compute background evolution
@@ -953,20 +1022,26 @@ class SingleFieldSolver:
         return P_zeta
 
     def plot_evolution(self, k, params):
-        """
-        Plot the evolution of the background and perturbations.
+        """Plot the background evolution and scalar power spectrum.
+
+        Produces a five-panel figure showing (from top to bottom):
+        P_zeta (slow-roll approximation vs full Mukhanov-Sasaki result),
+        slow-roll parameters epsilon_H and |eta_H|, the rescaled field phi,
+        -y = -d phi / dN, and the rescaled Hubble parameter h.  A vertical
+        dashed line marks the CMB pivot scale; the top panel has a secondary
+        x-axis showing the corresponding wavenumber k.
 
         Parameters
         ----------
         k : array-like
-            Array of wavenumbers.
+            Wavenumber grid (in s^-1) used for the full perturbation run.
         params : tuple
-            Parameters for the potential function.
+            Parameters forwarded to the potential ``V(phi, *params)``.
 
         Returns
         -------
-        fig : matplotlib.figure.Figure
-            The matplotlib figure object containing the plots.
+        matplotlib.figure.Figure
+            Figure object containing the five-panel plot.
         """
         # Compute background evolution
         N, phi, y, h = self.run_background(params)
@@ -1064,22 +1139,25 @@ class SingleFieldSolver:
     def plot_potential(
         self, params, phi_range=None, n_points=1000, relative=False
     ):
-        """
-        Plot the potential for a given set of parameters.
+        """Plot the inflaton potential V(phi).
 
         Parameters
         ----------
         params : tuple
-            Parameters for the potential function.
-        phi_range : tuple, optional
-            Range of field values to plot, by default None.
+            Parameters forwarded to the potential ``V(phi, *params)``.
+        phi_range : tuple of float, optional
+            ``(phi_min, phi_max)`` range for the plot.  Defaults to
+            ``(0.1 * phi0, 2 * phi0)``.
         n_points : int, optional
-            Number of points to plot, by default 1000.
+            Number of field values at which to evaluate V.  Default ``1000``.
+        relative : bool, optional
+            If ``True``, plot V / V(phi0) on the y-axis and phi / phi0 on
+            the x-axis.  Default ``False``.
 
         Returns
         -------
-        fig : matplotlib.figure.Figure
-            The matplotlib figure object containing the plot.
+        matplotlib.figure.Figure
+            Figure object containing the potential plot.
         """
         if phi_range is None:
             phi_range = (0.1 * self.phi0, 2 * self.phi0)
