@@ -30,6 +30,6 @@ def tile(stroke, op):
             f'<g fill="{stroke}" fill-opacity="{op}">{stars}{dots}</g>'
             f'</svg>')
 
-open(os.path.join(ROOT,'background/bg_tile_light.svg'),'w').write(tile('#20305f','0.07'))
-open(os.path.join(ROOT,'background/bg_tile_dark.svg'),'w').write(tile('#f2ead6','0.06'))
+open(os.path.join(ROOT,'background/bg_tile_light.svg'),'w').write(tile('#20305f','0.04'))
+open(os.path.join(ROOT,'background/bg_tile_dark.svg'),'w').write(tile('#f2ead6','0.035'))
 print('wrote bg tiles')
