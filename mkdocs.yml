@@ -3,7 +3,7 @@ site_description: Scalar-Induced Gravitational Wave AnalYsis
 site_url: https://jonaselgammal.github.io/SIGWAY/
 repo_url: https://github.com/jonaselgammal/SIGWAY
 repo_name: jonaselgammal/SIGWAY
-edit_uri: edit/docs/docs/
+edit_uri: edit/main/docs/
 
 theme:
   name: material
