@@ -1,18 +1,18 @@
-"""Integration strategies that turn a Kernel + ScalarPerturbations into the
-(un-normalised) tensor power spectrum integral.
+r"""Numerical integration strategies for scalar-induced gravitational waves.
 
-The numerical method is a *strategy*: ``SimpsonIntegrator`` is the current
-fixed-grid (s, t) Simpson quadrature; an ``FFTIntegrator`` (convolution-based,
-for non-Gaussianities) is a future sibling. The Gaussian "two P_zeta factors"
-assumption lives here, in SimpsonIntegrator, not in the base, so the FFT/NG
-strategy can replace it without touching the kernels or perturbations.
+This module performs the double integral over the two internal momenta $s$ and
+$t$ that appears in the standard expression for the SIGW tensor power spectrum.
+All physics assumptions about the primordial curvature power spectrum
+$\mathcal{P}_\zeta$ live here (specifically the Gaussian, two-point assumption
+expressed as two $\mathcal{P}_\zeta$ factors in the integrand), keeping the
+kernel and perturbation modules free of quadrature details.
 
-Each integrand core is written once as ``*_impl`` and also exposed jit-ed (the
-kernel/perturbation callables are static arguments). Jit-able perturbations
-(analytic spectra) run through the jit-ed core -- it compiles once and re-runs
-without retracing when only the parameter values change at fixed shapes. The MS
-solver is not jit-able (scipy splines), so that path runs the plain ``*_impl``
-eagerly.
+[SimpsonIntegrator][sigway.integrators.SimpsonIntegrator] is the primary
+concrete strategy: it applies composite Simpson quadrature on user-supplied
+$s$ and $t$ grids.
+
+See [Theory: the $(s,t)$ reparameterisation](../theory/index.md#in-the-codes-st-variables)
+for how $(s,t)$ relate to the physical momenta and the form of the integrand.
 """
 
 import jax
@@ -28,10 +28,11 @@ __all__ = ["Integrator", "SimpsonIntegrator"]
 
 
 def _kint(kvec, u, v):
-    """Wavenumber grid spanning the (k u, k v) range a P_zeta is sampled on.
+    """Wavenumber grid spanning the range $ku$ to $kv$ needed by the spectrum.
 
-    Only used by perturbations whose ``prepare`` interpolates (the MS solver);
-    analytic spectra ignore it.
+    Used only when the scalar-perturbation spectrum is backed by a numerical
+    solver (e.g. Mukhanov-Sasaki) and needs an interpolation grid; analytic
+    spectra ignore this helper.
     """
     lo = jnp.minimum(u.min(), v.min()) * kvec.min()
     hi = jnp.maximum(u.max(), v.max()) * kvec.max()
@@ -39,7 +40,11 @@ def _kint(kvec, u, v):
 
 
 def _simpson_constant_impl(pzeta, kernel_fn, s, t, kvec, theta_pz, theta_k):
-    """Double (s, t) Simpson integral for a smooth kernel. Returns (nk,)."""
+    """2-D Simpson integral over $(s, t)$ for a smooth (non-resonant) kernel.
+
+    Returns an array of shape ``(nk,)`` containing the un-normalised tensor
+    power spectrum at each wavenumber.
+    """
     ss = s[:, None, None]
     tt = t[None, :, :]
     k = kvec[None, None, :]
@@ -61,7 +66,13 @@ _simpson_constant = jit(_simpson_constant_impl, static_argnums=(0, 1))
 def _simpson_transitioning_impl(
     pzeta, kern_smooth, kern_res, t_res, s, t, kvec, theta_pz, theta_k
 ):
-    """Smooth (s, t) part plus a resonant 1-D (s) slice at fixed t = t_res."""
+    r"""2-D integral for the smooth kernel plus a 1-D resonant slice at fixed $t$.
+
+    Used when a kernel (e.g. the constant equation-of-state kernel near a
+    resonant feature) contributes a delta-like peak at a specific value
+    $t = t_\mathrm{res}$.  The smooth 2-D part and the resonant 1-D part are
+    evaluated separately and summed.
+    """
     ss = s[:, None, None]
     tt = t[None, :, :]
     k = kvec[None, None, :]
@@ -95,15 +106,21 @@ _simpson_transitioning = jit(
 
 
 class Integrator:
-    """Abstract base class for SIGW emission integrators.
+    r"""Abstract base class for SIGW double-integral strategies.
 
-    An integrator encapsulates the numerical quadrature strategy that turns a
-    [Kernel][sigway.kernels.Kernel] and a scalar-perturbation spectrum into the
-    un-normalised tensor power spectrum integral evaluated on a wavenumber grid.
+    An integrator performs the numerical double integral over the two rescaled
+    internal momenta $s \in [0, 1]$ and $t \in [0, \infty)$ that defines the
+    scalar-induced gravitational-wave tensor power spectrum.  Given a
+    [Kernel][sigway.kernels.Kernel] (which encodes the radiation-transfer
+    physics) and a primordial scalar power spectrum
+    [ScalarPerturbations][sigway.perturbations.ScalarPerturbations], it returns
+    the un-normalised tensor power spectrum on a wavenumber grid.
 
-    Subclasses must override `integrate`.  The overall normalisation factor
-    (``kernel.norm``), frequency-to-wavenumber conversion, and any upsampling
-    are handled by [OmegaGW][sigway.spectrum.OmegaGW], not here.
+    The global normalisation prefactor (``kernel.norm``), the conversion between
+    frequency and wavenumber, and any output upsampling are applied by
+    [OmegaGW][sigway.spectrum.OmegaGW] after calling this method.
+
+    Subclasses must override ``integrate``.
 
     Methods
     -------
@@ -117,68 +134,81 @@ class Integrator:
 
 
 class SimpsonIntegrator(Integrator):
-    """Fixed-grid (s, t) Simpson quadrature integrator (Gaussian two-P_zeta form).
+    r"""2-D Simpson quadrature over the $(s, t)$ momentum plane (Gaussian spectrum).
 
-    Evaluates the scalar-induced GW tensor power spectrum integral using
-    composite Simpson quadrature over the two rescaled internal momenta *s* and
-    *t*.  The integration variable *s* is dimensionless and lies in [0, 1];
-    *t* runs from 0 to infinity and parameterises the momentum transfer along
-    the other axis.  The physical momenta (u, v) relate to (s, t) by
+    This integrator performs the double integral that enters the scalar-induced
+    gravitational-wave energy density.  It assumes a **Gaussian** primordial
+    curvature perturbation, so the integrand contains the product of two copies
+    of the dimensionless scalar power spectrum $\mathcal{P}_\zeta$:
 
-    .. code-block:: none
+    $$
+    \overline{I^2}(k) = \int_0^1 ds \int_0^\infty dt \;
+        \overline{I^2}(t, s, k) \cdot J(t, s)
+        \cdot \mathcal{P}_\zeta(ku) \cdot \mathcal{P}_\zeta(kv),
+    $$
 
-        u = (t + s + 1) / 2
-        v = (t - s + 1) / 2
+    where the dimensionless internal momenta are defined by
 
-    The integrand at each grid point is
+    $$
+    u = \frac{t + s + 1}{2}, \qquad v = \frac{t - s + 1}{2},
+    $$
 
-    .. code-block:: none
+    and $J(t, s)$ is the Jacobian of the $(u, v) \to (s, t)$ change of
+    variables (see [polynomial][sigway.kernels.polynomial]).
 
-        kernel(t, s, k) * polynomial(t, s) * P_zeta(k*u) * P_zeta(k*v)
+    The integral is discretised on user-supplied grids for $s$ and $t$ and
+    evaluated with composite Simpson quadrature.  Grid choice matters
+    physically: the integrand peaks near $t \approx 1$, so the $t$-grid should
+    be **linear** below 1 (to resolve the peak) and **geometric** above 1 (to
+    cover the slowly-decaying tail efficiently).  A few hundred points total
+    is typically sufficient.
 
-    where ``polynomial(t, s)`` is the geometric Jacobian factor from the
-    (u, v) -> (s, t) change of variables (see [polynomial][sigway.kernels.polynomial]),
-    and the two ``P_zeta`` factors embody the Gaussian/two-point assumption.
-
-    If the kernel declares a ``resonant_t`` value, an additional 1-D Simpson
-    integral over *s* at the fixed resonant *t* slice is added on top of the
-    regular 2-D integral.
-
-    JIT compilation: for perturbation spectra whose ``jittable`` attribute is
-    ``True`` (analytic spectra), the quadrature core is JIT-compiled so that
-    repeated calls with different parameter values but identical array shapes
-    do not retrace.  Perturbations backed by the Mukhanov-Sasaki solver are not
-    JIT-compilable and run the same core eagerly.
+    If the [Kernel][sigway.kernels.Kernel] declares a resonant feature at a
+    specific value $t_\mathrm{res}$ (``kernel.resonant_t`` is set), an
+    additional 1-D Simpson integral over $s$ at that fixed $t$ slice is
+    computed and added to the 2-D result.
 
     Parameters
     ----------
     s : array_like or callable
-        Quadrature nodes for the *s* momentum variable, lying in [0, 1].
-        May be a fixed 1-D array or a callable ``s(kvec, *theta)`` that
-        returns a 1-D array, where ``theta`` is the full concatenated
-        parameter vector ``(*theta_pz, *theta_k)``.  A callable allows
-        the *s* grid to adapt to the current wavenumber range or parameter
-        values.
+        Quadrature nodes for the momentum variable $s \in [0, 1]$.
+        May be a fixed 1-D array or a callable ``s(kvec, *theta)`` returning
+        a 1-D array, where ``theta`` collects all physical parameters
+        ``(*theta_pz, *theta_k)``.  A callable is useful when the required
+        $s$-resolution depends on the spectral peak position.
     t : array_like or callable
-        Quadrature nodes for the *t* momentum variable, lying in [0, ∞).
-        May be a fixed 1-D array, a fixed 2-D array of shape ``(nt, nk)``
-        providing a separate node sequence for each wavenumber, or a callable
-        ``t(kvec, *theta)`` returning either a 1-D or 2-D array.  When a
-        1-D array (or callable returning one) is supplied it is broadcast to
-        shape ``(nt, nk)`` internally so that the non-uniform Simpson rule
-        over *t* can handle k-dependent node positions.
+        Quadrature nodes for the momentum variable $t \in [0, \infty)$.
+        May be a fixed 1-D array, a 2-D array of shape ``(nt, nk)`` providing
+        a separate node sequence per wavenumber, or a callable
+        ``t(kvec, *theta)`` returning either shape.  When a 1-D array is
+        provided it is broadcast internally to ``(nt, nk)`` so that the
+        non-uniform Simpson rule over $t$ applies consistently at every $k$.
+        A $k$-dependent grid is useful for tracking a spectral feature whose
+        relevant $t$-range shifts with $k$.
 
     Attributes
     ----------
     s : array_like or callable
-        The *s*-grid as supplied at construction time.
+        The $s$-grid as supplied at construction time.
     t : array_like or callable
-        The *t*-grid as supplied at construction time.
+        The $t$-grid as supplied at construction time.
 
     Methods
     -------
     integrate(kernel, pzeta, kvec, theta_pz, theta_k)
         Evaluate the un-normalised tensor power spectrum on ``kvec``.
+
+    Examples
+    --------
+    Build a `SimpsonIntegrator` with a hybrid $t$-grid that is linear near the
+    integrand peak ($t \lesssim 1$) and geometric in the tail ($t \gtrsim 1$):
+
+    >>> import jax.numpy as jnp
+    >>> from sigway.integrators import SimpsonIntegrator
+    >>> s = jnp.linspace(0.0, 1.0, 10)
+    >>> t = jnp.concatenate([jnp.linspace(1e-5, 0.999, 200),
+    ...                      jnp.geomspace(1.0, 1e3, 800)])
+    >>> integ = SimpsonIntegrator(s, t)   # or pass s=, t= straight to OmegaGW
     """
 
     def __init__(self, s, t):
@@ -197,38 +227,48 @@ class SimpsonIntegrator(Integrator):
         return jnp.asarray(s), t
 
     def integrate(self, kernel, pzeta, kvec, theta_pz, theta_k):
-        """Evaluate the un-normalised tensor power spectrum on a wavenumber grid.
+        r"""Evaluate the un-normalised tensor power spectrum $\overline{I^2}(k)$.
 
-        Resolves the (s, t) grids (calling them if they are callables), selects
-        the appropriate quadrature core based on the kernel's ``resonant_t``
-        attribute and the perturbation spectrum's ``jittable`` flag, and returns
-        the result of the double Simpson integral.
+        Resolves the $s$ and $t$ grids (evaluating them as callables if needed),
+        then performs the composite Simpson quadrature over both momentum
+        variables and returns the result on the requested wavenumber grid.
+
+        For analytic primordial spectra (``pzeta.jittable = True``) the
+        quadrature is compiled at first call and reused for subsequent calls with
+        different physical parameters at the same array shapes, making parameter
+        scans fast.  Spectra computed by the Mukhanov-Sasaki solver run the same
+        quadrature without compilation.
 
         Parameters
         ----------
         kernel : Kernel
-            A [Kernel][sigway.kernels.Kernel] instance that provides
-            ``overline_Isq``, optionally ``overline_Isq_resonant`` and
-            ``resonant_t``.
+            A [Kernel][sigway.kernels.Kernel] instance providing the
+            radiation-transfer function $\overline{I^2}(t, s, k)$.  If the
+            kernel has a resonant feature it additionally provides
+            ``overline_Isq_resonant`` and ``resonant_t``.
         pzeta : ScalarPerturbations
-            A scalar-perturbation spectrum object with a ``prepare`` method and
-            a ``jittable`` attribute.  ``prepare`` is called with a helper
-            wavenumber grid and ``theta_pz`` to return a callable
-            ``P_zeta(k_array)``.
+            The primordial scalar power spectrum
+            $\mathcal{P}_\zeta(k)$.  Its ``prepare`` method returns a
+            callable that evaluates $\mathcal{P}_\zeta$ on an arbitrary
+            wavenumber array.
         kvec : array_like, shape (nk,)
-            Wavenumber grid on which the integral is evaluated.  Units must be
-            consistent with those used by ``kernel`` and ``pzeta``.
+            Wavenumber grid at which $\overline{I^2}(k)$ is evaluated.
+            Units must be consistent with those used by ``kernel`` and
+            ``pzeta``.
         theta_pz : tuple
-            Parameter values forwarded to the perturbation spectrum.
+            Physical parameter values for the scalar power spectrum (e.g.
+            amplitude, tilt, peak scale).
         theta_k : tuple
-            Parameter values forwarded to the kernel.
+            Physical parameter values for the kernel (e.g. equation-of-state
+            parameter $w$).
 
         Returns
         -------
         jax.Array, shape (nk,)
-            Un-normalised tensor power spectrum values at each wavenumber in
-            ``kvec``.  The caller ([OmegaGW][sigway.spectrum.OmegaGW]) applies
-            the normalisation factor ``kernel.norm`` separately.
+            Un-normalised tensor power spectrum values $\overline{I^2}(k)$ at
+            each wavenumber in ``kvec``.  [OmegaGW][sigway.spectrum.OmegaGW]
+            multiplies by ``kernel.norm`` and the standard prefactors to produce
+            $\Omega_\mathrm{GW}(f)$.
         """
         theta = (*theta_pz, *theta_k)
         s, t = self._grids(kvec, theta)

@@ -1,12 +1,21 @@
-"""
+r"""
 Single-field Mukhanov-Sasaki solver.
 
-Solves the inflationary background and Mukhanov-Sasaki perturbation equations
-for a single-field slow-roll (or ultra-slow-roll) model given a JAX-compatible
-potential ``V(phi, *params)``. The background ODE is integrated first; an
-optional consistency check against CMB observables is then performed; finally
-the scalar power spectrum P_zeta(k) is computed via mode-by-mode integration
-of the perturbation equations.
+This module computes the primordial scalar power spectrum
+$\mathcal{P}_\zeta(k)$ for a single-field inflationary model with potential
+$V(\phi)$.  Two sets of equations are solved in sequence:
+
+1. **Background** — the Klein-Gordon equation for the inflaton $\phi(N)$
+   coupled to the Friedmann equation for the Hubble parameter $H(N)$, where
+   $N$ is the number of e-folds.  Integration proceeds from the initial
+   conditions $(\phi_0, \pi_0)$ until the slow-roll parameter
+   $\epsilon_H \equiv \dot\phi^2/(2H^2) = 1$ (end of inflation).
+
+2. **Perturbations** — the Mukhanov-Sasaki equation for each comoving
+   wavenumber $k$ is integrated from deep inside the horizon (Bunch-Davies
+   vacuum) to well after horizon crossing, yielding the amplitude of the
+   curvature perturbation $\zeta_k$.  The power spectrum is then
+   $\mathcal{P}_\zeta(k) = k^3 |\zeta_k|^2 / (2\pi^2)$.
 
 Public API
 ----------
@@ -55,64 +64,70 @@ from sigway.utils import (
 jax.config.update("jax_enable_x64", True)
 
 
-# Create an Exception class for consistency checks
 class ConsistencyError(Exception):
-    """Raised when a physical consistency check fails during solving.
+    r"""Raised when the model fails a physical self-consistency check.
 
-    Typical triggers include insufficient e-folds to reach the CMB scale, or
-    too few e-folds remaining to evolve perturbations across the required
-    sub- and super-horizon window.
+    Typical causes: the background trajectory produces too few e-folds to
+    reach the CMB pivot scale, or the horizon-crossing e-fold $N_k$ is so
+    early that there is insufficient room to initialise the Bunch-Davies
+    vacuum $N_{\mathrm{sub}}$ e-folds before crossing.
     """
 
 
 @partial(jax.jit, static_argnums=(0, 1, 2, 4))
 def _run_background(Ud, max_efolds, phi0, pvalues, solver_opts):
-    """
-    Solves the background equations for an ultra slow rolling single inflaton
-    field.
+    r"""
+    Integrate the inflationary background equations from $N=0$ to inflation end.
+
+    The state vector is $(\phi, \pi, h)$ where $\phi$ is the inflaton field,
+    $\pi \equiv \mathrm{d}\phi/\mathrm{d}N$ is its velocity with respect to
+    e-folds, and $h$ is the Hubble parameter rescaled by
+    $\sqrt{V(\phi_0)/3}$.  Integration stops when $\pi^2 > 2$, i.e. when
+    the slow-roll parameter $\epsilon_H = \pi^2/2 \geq 1$ signals the end
+    of inflation.
 
     Parameters
     ----------
-    Ud : function
-        Function that computes the first derivative of the potential with
-        respect to the field.
+    Ud : callable
+        Gradient of the rescaled potential $U(\phi) = V(\phi)/V(\phi_0)$
+        with respect to $\phi$.
     max_efolds : int
-        Maximum number of e-folds to integrate.
+        Hard upper limit on the number of e-folds integrated.
     phi0 : float
-        Initial value of the inflaton field.
+        Initial inflaton field value $\phi_0$.
     pvalues : tuple
-        Parameters for the potential function.
-    solver_opts : dict
-        Options for the differential equation solver.
+        Extra parameters passed to the potential.
+    solver_opts : SolverOptions
+        Numerical tolerances and step-size settings for the ODE solver.
 
     Returns
     -------
-    diffrax.diffeqsolve.Solution
-        The solution of the differential equations containing the evolution of
-        the inflaton field, its derivative, and the Hubble parameter over the
-        specified number of e-folds.
+    diffrax.Solution
+        ODE solution; ``sol.ts`` gives the e-fold grid and ``sol.ys`` the
+        state $(\phi, \pi, h)$ at each saved step.
     """
 
     def equations(n, variables, args):
-        """
-        Defines the system of differential equations for the background
-        evolution.
+        r"""
+        Background equations of motion in e-fold time.
+
+        The system is the Klein-Gordon equation for $\phi$ and the Friedmann
+        equation for $h$, written as first-order ODEs in $N$.
 
         Parameters
         ----------
         n : float
-            The number of e-folds.
+            Current e-fold number $N$.
         variables : array-like
-            The state variables of the system [x, y, h], where x is the field
-            value, y is its derivative with respect to the number of e-folds,
-            and h is the Hubble parameter.
+            State vector $(\phi, \pi, h)$.
         args : tuple
-            Additional arguments for the function (unused here).
+            Unused; required by the diffrax ODE interface.
 
         Returns
         -------
         array-like
-            Derivatives of the state variables.
+            Time derivatives $(\mathrm{d}\phi/\mathrm{d}N,\,
+            \mathrm{d}\pi/\mathrm{d}N,\, \mathrm{d}h/\mathrm{d}N)$.
         """
         x, y, h = variables
         derx = y
@@ -121,33 +136,35 @@ def _run_background(Ud, max_efolds, phi0, pvalues, solver_opts):
         return jnp.array([derx, dery, derh])
 
     def inflation_end(t, y, *args, **kwargs):
-        """
-        Event function to determine the end of inflation.
+        r"""
+        Termination condition: inflation ends when $\epsilon_H \geq 1$.
 
         Parameters
         ----------
         t : float
-            The current time or e-fold number.
+            Current e-fold number (unused directly).
         y : array-like
-            The current state of the system [x, y, h].
+            Current state $(\phi, \pi, h)$.
         args : tuple
-            Additional arguments for the function (unused here).
+            Unused.
 
         Returns
         -------
         bool
-            True if inflation has ended, False otherwise.
+            ``True`` (stop) when $\pi^2 > 2$, i.e. $\epsilon_H > 1$.
         """
         return y[1] ** 2 > 2
 
-    # Initial conditions
+    # Initial conditions: slow-roll attractor values for pi and h at phi0.
+    # pi0 is set from the attractor relation dU/dphi = -3H pi (slow-roll).
+    # h0 is the corresponding Hubble rate from the Friedmann equation.
     Ud0 = Ud(phi0, *pvalues)
     y0 = -(3 / Ud0) * (
         jnp.sqrt(1 + 2 / 3 * Ud0**2) - 1
-    )  # Initial derivative wrt N of the rescaled inflaton
+    )  # $\pi_0$: initial field velocity on the slow-roll attractor
     h0 = (
         1 / jnp.sqrt(6) * (jnp.sqrt(1 + 2 / 3 * Ud0**2) + 1) ** (1 / 2)
-    )  # Initial rescaled Hubble rate
+    )  # $h_0$: initial rescaled Hubble rate
 
     # Setting up the differential equation solver
     term = ODETerm(equations)
@@ -179,73 +196,80 @@ def _run_background(Ud, max_efolds, phi0, pvalues, solver_opts):
 def _solve_perturbations(
     Ud, Udd, phiIn, yIn, hIn, nin, nout, lograt, pvalues, solver_opts
 ):
-    """
-    Solves the perturbation equations for an ultra slow rolling single inflaton
-    field.
+    r"""
+    Integrate the Mukhanov-Sasaki equation for a single mode $k$.
+
+    The perturbation $\Delta\phi_k$ is decomposed into real and imaginary
+    parts.  Both are evolved simultaneously together with the background
+    trajectory, starting from Bunch-Davies initial conditions at $N_{\rm in}$
+    (deep inside the horizon) and ending at $N_{\rm out}$ (well outside the
+    horizon).
 
     Parameters
     ----------
-    Ud : function
-        Function that computes the first derivative of the potential with
-        respect to the field.
-    Udd : function
-        Function that computes the second derivative of the potential with
-        respect to the field.
+    Ud : callable
+        First derivative $\partial U/\partial\phi$ of the rescaled potential.
+    Udd : callable
+        Second derivative $\partial^2 U/\partial\phi^2$ of the rescaled
+        potential.
     phiIn : float
-        Initial value of the inflaton field.
+        Inflaton field value $\phi$ at $N_{\rm in}$.
     yIn : float
-        Initial value of the derivative of the inflaton field with respect to
-        the number of e-folds.
+        Field velocity $\pi = \mathrm{d}\phi/\mathrm{d}N$ at $N_{\rm in}$.
     hIn : float
-        Initial value of the Hubble parameter.
+        Rescaled Hubble parameter $h$ at $N_{\rm in}$.
     nin : float
-        Initial number of e-folds.
+        Initial e-fold number $N_{\rm in}$ (Bunch-Davies conditions set here).
     nout : float
-        Final number of e-folds.
+        Final e-fold number $N_{\rm out}$ at which the frozen mode amplitude
+        is read off.
     lograt : float
-        log(k/a) at nin.
+        $\ln(k/aH)$ evaluated at $N_{\rm in}$; encodes how far the mode is
+        inside the horizon at the start of integration.
     pvalues : tuple
-        Parameters for the potential function.
-    solver_opts : NamedTuple (SolverOptions)
-        Options for the differential equation solver.
+        Extra parameters passed to the potential.
+    solver_opts : SolverOptions
+        Numerical tolerances and step-size settings for the ODE solver.
 
     Returns
     -------
-    diffrax.diffeqsolve.Solution
-        The solution of the differential equations containing the evolution of
-        the perturbations over the specified number of e-folds.
+    diffrax.Solution
+        ODE solution; ``sol.ys`` has shape ``(steps, 7)`` with columns
+        $(\phi, \pi, h, \mathrm{Re}\,\Delta\phi, \mathrm{Re}\,\Delta\phi',
+        \mathrm{Im}\,\Delta\phi, \mathrm{Im}\,\Delta\phi')$.
     """
-    # Initial conditions for the perturbations
-
-    dPhiRin = 1.0  # Initial value of the real part of tilde Delta phi
-    dPhiRpRin = -1.0  # Initial value of the derivative of the real part of
-    # tilde Delta phi with respect to N
-    dPhiIin = 0.0  # Initial value of the imaginary part of tilde Delta phi
-    dPhiIpIin = 0.0  # Initial value of the derivative of the imaginary part of
-    # tilde Delta phi with respect to N
+    # Bunch-Davies vacuum initial conditions for the mode function
+    # at N_in (deep inside the horizon).  The normalisation sets the
+    # standard quantum vacuum amplitude; the imaginary part starts at zero.
+    dPhiRin = 1.0      # $\mathrm{Re}\,\widetilde{\Delta\phi}$ at $N_{\rm in}$
+    dPhiRpRin = -1.0   # $\mathrm{d}(\mathrm{Re}\,\widetilde{\Delta\phi})/\mathrm{d}N$ at $N_{\rm in}$
+    dPhiIin = 0.0      # $\mathrm{Im}\,\widetilde{\Delta\phi}$ at $N_{\rm in}$
+    dPhiIpIin = 0.0    # $\mathrm{d}(\mathrm{Im}\,\widetilde{\Delta\phi})/\mathrm{d}N$ at $N_{\rm in}$
 
     def equations_perturbations(n, variables, args):
-        """
-        Defines the system of differential equations for the perturbations.
+        r"""
+        Mukhanov-Sasaki + background equations of motion in e-fold time.
+
+        Evolves the background $(\phi, \pi, h)$ jointly with the real and
+        imaginary parts of the rescaled field perturbation
+        $\widetilde{\Delta\phi}$ and their $N$-derivatives.
 
         Parameters
         ----------
         n : float
-            The number of e-folds.
+            Current e-fold number $N$.
         variables : array-like
-            The state variables of the system [x, y, h, dPhiR, dPhipR, dPhiI,
-            dPhipI], where x is the field value, y is its derivative with
-            respect to the number of e-folds, h is the Hubble parameter, dPhiR
-            and dPhiI are the real and imaginary parts of the perturbation
-            field, and dPhipR and dPhipI are their derivatives with respect to
-            the number of e-folds.
+            State vector $(\phi, \pi, h,
+            \mathrm{Re}\,\Delta\phi, \mathrm{Re}\,\Delta\phi',
+            \mathrm{Im}\,\Delta\phi, \mathrm{Im}\,\Delta\phi')$.
         args : tuple
-            Additional arguments for the function (nin, lograt).
+            ``(nin, lograt)`` — initial e-fold and $\ln(k/aH)$ at $N_{\rm in}$,
+            used to track the comoving horizon ratio throughout the integration.
 
         Returns
         -------
         array-like
-            Derivatives of the state variables.
+            $N$-derivatives of all seven state variables.
         """
         nin, lograt = args
         x, y, h, dPhiR, dPhipR, dPhiI, dPhipI = variables
@@ -304,56 +328,65 @@ def _solve_perturbations(
 def _run_perturbations(
     Ud, Udd, phiIn, yIn, yOut, hIn, nin, nout, lograt, pvalues, solver_opts
 ):
-    """
-    Runs the perturbation solver and computes the dimensionless power spectrum
-    Pzeta/V0.
+    r"""
+    Integrate the Mukhanov-Sasaki equation and return $\mathcal{P}_\zeta/V_0$.
+
+    Calls `_solve_perturbations` and then assembles the dimensionless power
+    spectrum (normalised by $V_0 = V(\phi_0)$) from the frozen mode amplitude
+    at $N_{\rm out}$:
+
+    $$\frac{\mathcal{P}_\zeta}{V_0} =
+      \frac{k^3}{4\pi^2\,\epsilon_H}
+      \bigl|\widetilde{\Delta\phi}_k(N_{\rm out})\bigr|^2.$$
 
     Parameters
     ----------
-    Ud : function
-        Function that computes the first derivative of the potential with
-        respect to the field.
-    Udd : function
-        Function that computes the second derivative of the potential with
-        respect to the field.
+    Ud : callable
+        First derivative $\partial U/\partial\phi$ of the rescaled potential.
+    Udd : callable
+        Second derivative $\partial^2 U/\partial\phi^2$ of the rescaled
+        potential.
     phiIn : float
-        Initial value of the inflaton field.
+        Inflaton field value at $N_{\rm in}$.
     yIn : float
-        Initial value of the derivative of the inflaton field with respect to
-        the number of e-folds.
+        Field velocity $\pi$ at $N_{\rm in}$.
     yOut : float
-        Final value of the derivative of the inflaton field with respect to the
-        number of e-folds.
+        Field velocity $\pi$ at $N_{\rm out}$ (used for the spectrum
+        amplitude; overwritten internally by the ODE output).
     hIn : float
-        Initial value of the Hubble parameter.
+        Rescaled Hubble parameter at $N_{\rm in}$.
     nin : float
-        Initial number of e-folds.
+        Initial e-fold number $N_{\rm in}$.
     nout : float
-        Final number of e-folds.
+        Final e-fold number $N_{\rm out}$.
     lograt : float
-        log(k/a) at nin.
+        $\ln(k/aH)$ at $N_{\rm in}$.
     pvalues : tuple
-        Parameters for the potential function.
-    solver_opts : NamedTuple (SolverOptions)
-        Options for the differential equation solver.
+        Extra parameters passed to the potential.
+    solver_opts : SolverOptions
+        Numerical tolerances and step-size settings for the ODE solver.
 
     Returns
     -------
     float
-        The dimensionless power spectrum Pzeta/V0.
+        $\mathcal{P}_\zeta(k)/V_0$, the mode contribution to the scalar
+        power spectrum divided by $V(\phi_0)$.
     """
     # Solve the perturbation equations
     sol = _solve_perturbations(
         Ud, Udd, phiIn, yIn, hIn, nin, nout, lograt, pvalues, solver_opts
     )
 
-    # Extract the real and imaginary parts of the perturbation field at the
-    # final step
+    # Read off the frozen mode amplitude at N_out.
+    # deltaPhiR, deltaPhiI are the real and imaginary parts of the
+    # rescaled perturbation; yOut = pi at N_out gives epsilon_H = yOut^2/2.
     deltaPhiR = sol.ys[-1][3]
     deltaPhiI = sol.ys[-1][5]
     yOut = sol.ys[-1][1]
 
-    # Compute the dimensionless power spectrum Pzeta/V0
+    # Assemble P_zeta / V0 from the mode amplitude.
+    # The factor exp(2*lograt) = (k/aH)^2 at N_in converts the rescaled
+    # amplitude back to physical units.
     Pzeta_by_V0 = (
         1
         / (4 * jnp.pi**2)
@@ -368,24 +401,31 @@ def _run_perturbations(
 class SolverOptions(namedtuple(
     "SolverOptions", ["rtol", "atol", "max_steps", "dt0", "saveat"]
 )):
-    """Named tuple holding ODE solver configuration for diffrax.
+    r"""Numerical settings for the adaptive ODE integrator (diffrax Tsit5).
 
-    Used separately for the background and perturbation solvers via the
-    ``background_solver_opts`` and ``perturbation_solver_opts`` constructor
-    arguments of [SingleFieldSolver][sigway.ms_solver.SingleFieldSolver].
+    One instance is used for the background solver and a separate one for the
+    perturbation solver; both are configured via the
+    ``background_solver_opts`` and ``perturbation_solver_opts`` arguments of
+    [SingleFieldSolver][sigway.ms_solver.SingleFieldSolver].
 
     Attributes
     ----------
     rtol : float
-        Relative tolerance for the adaptive step-size (PID) controller.
+        Relative error tolerance for the adaptive (PID) step-size controller.
+        Tighter values increase accuracy at the cost of more ODE steps.
     atol : float
-        Absolute tolerance for the adaptive step-size (PID) controller.
+        Absolute error tolerance for the adaptive step-size controller.
     max_steps : int
-        Maximum number of ODE steps before the solver gives up.
+        Maximum number of ODE steps allowed before the integrator gives up.
+        Increase this for potentials with sharp features or very long
+        inflation.
     dt0 : float
-        Initial step size in e-folds.
+        Initial step size in e-folds $\Delta N$.
     saveat : diffrax.SaveAt
-        Diffrax ``SaveAt`` object specifying which solution points to store.
+        Specification of which solution points to store.  The default
+        ``SaveAt(steps=True)`` retains every adaptive step (needed for the
+        background); ``SaveAt(t1=True)`` stores only the final value (used
+        for the perturbation solver to save memory).
     """
 
 
@@ -395,77 +435,114 @@ def interpolation_inner(knew, k, coeff):
 
 
 class SingleFieldSolver:
-    """Solves the Mukhanov-Sasaki equation for a single-field inflationary model.
+    r"""Compute the primordial scalar power spectrum $\mathcal{P}_\zeta(k)$ for a single inflaton field.
 
-    Given a JAX-compatible potential ``V(phi, *params)``, this class integrates
-    the background Klein-Gordon + Friedmann equations and then solves the
-    Mukhanov-Sasaki perturbation equations mode by mode to compute the
-    dimensionful scalar power spectrum P_zeta(k).
+    Given a potential $V(\phi, *\mathrm{params})$, this class:
 
-    Calling ``solver.run(k, *params)`` returns a callable ``P_zeta(k_new)``
-    that interpolates the computed spectrum.  Calling the instance directly
-    (``solver(k, *params)``) returns the raw P_zeta array evaluated at ``k``.
+    1. Integrates the **background** Klein-Gordon and Friedmann equations in
+       e-fold time $N$ from the initial field value $\phi_0$ (on the slow-roll
+       attractor) until the end of inflation ($\epsilon_H = 1$).
+    2. For each comoving wavenumber $k$ in the requested grid, integrates the
+       **Mukhanov-Sasaki equation** from Bunch-Davies initial conditions
+       (set $N_{\rm sub}$ e-folds before horizon crossing) to well after
+       horizon crossing ($N_{\rm sup}$ e-folds after), then reads off the
+       frozen amplitude to obtain $\mathcal{P}_\zeta(k)$.
+
+    The potential is normalised internally as $U(\phi) = V(\phi)/V(\phi_0)$,
+    so the overall energy scale $V_0 \equiv V(\phi_0)$ is restored at the end.
+    The rescaled background variables are $\pi \equiv \mathrm{d}\phi/\mathrm{d}N$
+    and $h = H / \sqrt{V_0/3}$.
+
+    The primary entry points are:
+
+    - ``solver.run(k, *params)`` — runs the full calculation and returns a
+      callable interpolant $\mathcal{P}_\zeta(k_{\rm new})$.
+    - ``solver(k, *params)`` — same calculation, returns the raw
+      $\mathcal{P}_\zeta$ array instead.
 
     Parameters
     ----------
     V : callable
-        Potential function ``V(phi, *params)``.  Must be JAX-traceable
-        (i.e. compatible with ``jax.jit`` and ``jax.grad``).
+        Inflaton potential $V(\phi, *\mathrm{params})$.  Must be written in
+        JAX (using ``jax.numpy``) so that automatic differentiation can
+        compute $V'$ and $V''$ internally.
     phi0 : float, optional
-        Initial field value.  Also used as the normalisation point for the
-        internal rescaled potential ``U = V / V(phi0)``.  Default ``0.0``.
+        Initial field value $\phi_0$.  Also the normalisation point:
+        $U(\phi) \equiv V(\phi)/V(\phi_0)$.  Default ``0.0``.
     pi0 : float, optional
-        Initial field momentum (currently stored but not used to set the
-        background initial conditions, which are instead fixed by slow-roll
-        attractor values).  Default ``0.0``.
+        Initial field velocity $\pi_0 = \mathrm{d}\phi/\mathrm{d}N\big|_0$.
+        Currently stored for reference; the background integration always
+        starts from the slow-roll attractor value derived from $V'(\phi_0)$.
+        Default ``0.0``.
     N_CMB_to_end : float, optional
-        Number of e-folds from the CMB pivot scale to the end of inflation,
-        assuming instantaneous reheating.  Default ``65.0``.
+        Number of e-folds from the CMB pivot scale $k_* \approx 0.05\,\mathrm{Mpc}^{-1}$
+        to the end of inflation, assuming instantaneous reheating.  This sets
+        the absolute $k$-to-$N$ mapping.  Default ``65.0``.
     max_efolds : float, optional
-        Maximum number of e-folds for the background integration.
-        Default ``1000.0``.
+        Hard upper limit on the number of e-folds integrated for the
+        background.  Increase this for models with very long inflationary
+        phases.  Default ``1000.0``.
     cmb_bounds : dict, optional
-        Dictionary with keys ``"means"`` (array of shape ``(3,)``) and
-        ``"cov"`` (array of shape ``(3, 3)``) encoding Gaussian CMB
-        observational constraints on
-        ``[ln(10^10 P_zeta), n_s, r]``.
-        Used only when ``check_consistency=True``.  Defaults to Planck-like
-        values if not provided.
+        Gaussian CMB observational priors on
+        $[\ln(10^{10}\mathcal{P}_\zeta),\, n_s,\, r]$, supplied as a dict
+        with keys ``"means"`` (shape ``(3,)``) and ``"cov"`` (shape
+        ``(3, 3)``).  Used only when ``check_consistency=True``.  Defaults
+        to Planck 2018 best-fit values.
     check_consistency : bool, optional
-        If ``True``, evaluate the log-likelihood against ``cmb_bounds`` at
-        the CMB scale after the background run.  Currently informational only
-        (the result is not used to gate the perturbation run).
+        If ``True``, compute the Gaussian log-likelihood of the slow-roll
+        CMB observables against ``cmb_bounds`` after the background run.
+        Informational only; does not affect the perturbation calculation.
         Default ``False``.
     N_subhorizon : float, optional
-        Number of e-folds before horizon crossing at which to initialise
-        each perturbation mode (Bunch-Davies vacuum initial conditions).
+        Number of e-folds before horizon crossing ($k = aH$) at which to
+        impose Bunch-Davies vacuum initial conditions on each mode.
         Default ``3.0``.
     N_suphorizon : float, optional
-        Number of e-folds after horizon crossing at which to freeze each
-        perturbation mode and read off the power spectrum.  Default ``7.0``.
+        Number of e-folds after horizon crossing at which to read off the
+        frozen super-horizon mode amplitude.  Default ``7.0``.
     k : array-like or callable or None, optional
-        Wavenumber grid used for upsampled output.  Only relevant when
-        ``upsample=True``.  Default ``None``.
+        Wavenumber grid (in $\mathrm{s}^{-1}$) onto which the spectrum is
+        interpolated when ``upsample=True``.  Ignored otherwise.
+        Default ``None``.
     upsample : bool, optional
-        If ``True``, interpolate the computed power spectrum onto the ``k``
-        grid.  Requires ``k`` to be provided.  Default ``False``.
+        If ``True``, evaluate the returned power spectrum on the dense ``k``
+        grid rather than on the wavenumbers passed to ``run``.  Requires
+        ``k`` to be set.  Default ``False``.
     background_solver_opts : dict, optional
-        Override fields of the default [SolverOptions][sigway.ms_solver.SolverOptions]
-        for the background ODE solver.  Defaults:
-        ``rtol=1e-8``, ``atol=1e-8``, ``max_steps=100000``,
-        ``dt0=1e-3``, ``saveat=SaveAt(steps=True)``.
-        **Warning:** only change these if you know what you are doing.
+        Override any field of the default
+        [SolverOptions][sigway.ms_solver.SolverOptions] for the background
+        integrator.  Defaults: ``rtol=1e-8``, ``atol=1e-8``,
+        ``max_steps=100000``, ``dt0=1e-3``, ``saveat=SaveAt(steps=True)``.
+        Tighten tolerances if the background trajectory looks noisy for
+        potentials with sharp features.
     perturbation_solver_opts : dict, optional
-        Override fields of the default [SolverOptions][sigway.ms_solver.SolverOptions]
-        for the perturbation ODE solver.  Defaults:
-        ``rtol=1e-6``, ``atol=1e-6``, ``max_steps=1000000``,
-        ``dt0=1e-3``, ``saveat=SaveAt(t1=True)`` (only the final value is
-        stored).  Setting ``saveat=SaveAt(steps=True)`` will considerably
-        slow down the computation.
-        **Warning:** only change these if you know what you are doing.
+        Override any field of the default
+        [SolverOptions][sigway.ms_solver.SolverOptions] for the perturbation
+        integrator.  Defaults: ``rtol=1e-6``, ``atol=1e-6``,
+        ``max_steps=1000000``, ``dt0=1e-3``, ``saveat=SaveAt(t1=True)``
+        (only the final mode amplitude is stored, saving memory).  Setting
+        ``saveat=SaveAt(steps=True)`` retains the full mode history but is
+        considerably slower.
     error_on_fail : bool, optional
-        If ``True``, raise an error when the perturbation solver fails for a
-        given mode.  Default ``False``.
+        If ``True``, raise an error when the perturbation integrator fails
+        for a given mode.  Default ``False``.
+
+    Examples
+    --------
+    Ultra-slow-roll model with a near-inflection-point potential:
+
+    >>> import jax.numpy as jnp
+    >>> from sigway.ms_solver import SingleFieldSolver
+    >>> def V(phi, a, lam, v, nfac):
+    ...     b = (1+nfac)*(1 - a**2/3 + a**2/3*(9/(2*a**2)-1)**(2/3))
+    ...     x = phi/v
+    ...     return lam*v**4/12 * x**2*(6-4*a*x+3*x**2)/(1+b*x**2)**2
+    >>> solver = SingleFieldSolver(V, phi0=3.0, pi0=0.0, N_CMB_to_end=58.0,
+    ...                            k=jnp.geomspace(1e-5, 10.0, 200))
+
+    After construction, call ``solver.run(k, *params)`` to obtain a callable
+    interpolant of $\mathcal{P}_\zeta(k)$, or ``solver(k, *params)`` for the
+    raw spectrum array.
     """
 
     def __init__(
@@ -485,7 +562,7 @@ class SingleFieldSolver:
         perturbation_solver_opts={},
         error_on_fail=False,
     ):
-        # Ensure the potential function is JAX-compatible
+        # Wrap V with jit so gradients and vmapped calls compile efficiently.
         if not isinstance(V, jax.interpreters.ad.JVPTracer):
             # try:
             V = jax.jit(V)
@@ -498,29 +575,32 @@ class SingleFieldSolver:
         else:
             self.V = V
 
-        # Set the normalized potential and its derivatives
+        # Rescaled potential U(phi) = V(phi)/V(phi0) and its first two
+        # derivatives, computed by automatic differentiation.
         self.U = lambda phi, *p: self.V(phi, *p) / self.V(
             self.phi0, *p
-        )  # Normalize to 1 at phi0
-        self.Ud = jax.grad(self.U)
-        self.Udd = jax.grad(self.Ud)
+        )  # $U(\phi) = V(\phi)/V(\phi_0)$, normalised to unity at $\phi_0$
+        self.Ud = jax.grad(self.U)    # $\partial U/\partial\phi$
+        self.Udd = jax.grad(self.Ud)  # $\partial^2 U/\partial\phi^2$
 
-        # Set the initial conditions
-        self.phi0 = phi0
-        self.pi0 = pi0
+        # Initial field conditions.
+        self.phi0 = phi0  # $\phi_0$: starting field value
+        self.pi0 = pi0    # $\pi_0 = \mathrm{d}\phi/\mathrm{d}N|_0$ (stored; slow-roll attractor used in practice)
 
-        # Number of efolds from CMB to the end of inflation
-        # By fixing this we assume instantaneous reheating
+        # Number of e-folds from the CMB pivot scale to the end of inflation.
+        # Assuming instantaneous reheating fixes the absolute k-to-N mapping.
         self.N_CMB_to_end = N_CMB_to_end
 
-        # Maximum number of efolds to run the background evolution
+        # Hard upper limit on the background integration.
         self.max_efolds = max_efolds
 
-        # Number of efolds to run the perturbations
+        # Window around horizon crossing used for the perturbation integration:
+        # start N_subhorizon e-folds before k = aH (Bunch-Davies conditions),
+        # end N_suphorizon e-folds after k = aH (super-horizon freeze-out).
         self.N_subhorizon = N_subhorizon
         self.N_suphorizon = N_suphorizon
 
-        # Set CMB bounds
+        # CMB consistency check settings.
         self.check_consistency = check_consistency
         self.cmb_means = cmb_bounds.get(
             "means", jnp.array([3.04442188, 0.96488871, 0.0])
@@ -609,28 +689,30 @@ class SingleFieldSolver:
             )
 
     def run_background(self, params):
-        """Integrate the inflationary background equations.
+        r"""Integrate the inflationary background equations.
 
-        Solves the background Klein-Gordon and Friedmann equations from
-        N = 0 until inflation ends (epsilon_H >= 1) or ``max_efolds`` is
-        reached.  The internal rescaled variables are returned; in particular
-        ``h`` is the Hubble parameter normalised by sqrt(V(phi0) / 3).
+        Evolves the inflaton $\phi(N)$ and Hubble parameter $H(N)$ from the
+        slow-roll attractor at $\phi_0$ until $\epsilon_H \geq 1$ (end of
+        inflation) or ``max_efolds`` is reached.  The returned arrays use the
+        internally rescaled variables: $h = H/\sqrt{V(\phi_0)/3}$.
 
         Parameters
         ----------
         params : tuple
-            Parameters forwarded to the potential ``V(phi, *params)``.
+            Extra parameters forwarded to the potential $V(\phi, *\mathrm{params})$.
 
         Returns
         -------
         N : numpy.ndarray
-            E-fold values at each saved solver step.
+            E-fold number at each saved integration step.
         phi : numpy.ndarray
-            Field values at each saved step.
+            Inflaton field $\phi(N)$ at each saved step.
         y : numpy.ndarray
-            Field derivative d phi / dN at each saved step.
+            Field velocity $\pi(N) = \mathrm{d}\phi/\mathrm{d}N$ at each
+            saved step.
         h : numpy.ndarray
-            Rescaled Hubble parameter at each saved step.
+            Rescaled Hubble parameter $h(N) = H(N)/\sqrt{V(\phi_0)/3}$ at
+            each saved step.
         """
         bsol = _run_background(
             self.Ud,
@@ -648,38 +730,41 @@ class SingleFieldSolver:
         return N, phi, y, h
 
     def run_perturbations(self, k, N, phi, y, h, params):
-        """Run the perturbation solver over all wavenumbers and return P_zeta.
+        r"""Solve the Mukhanov-Sasaki equation for all modes and return $\mathcal{P}_\zeta(k)$.
 
-        Uses ``jax.vmap`` to integrate the Mukhanov-Sasaki equations for each
-        mode in ``k`` in parallel.  Initial conditions (Bunch-Davies vacuum)
-        are set ``N_subhorizon`` e-folds before horizon crossing; the mode
-        amplitude is read off ``N_suphorizon`` e-folds after horizon crossing.
+        For each wavenumber $k$ the integration window is
+        $[N_k - N_{\rm sub},\, N_k + N_{\rm sup}]$ where $N_k$ is the horizon
+        crossing e-fold ($k = a H$).  All modes are integrated simultaneously
+        using ``jax.vmap``.
 
         Parameters
         ----------
         k : array-like
-            Wavenumber grid (in s^-1).
+            Comoving wavenumber grid in $\mathrm{s}^{-1}$.
         N : array-like
-            E-fold array from the background evolution.
+            E-fold array from ``run_background``.
         phi : array-like
-            Field values from the background evolution, same shape as ``N``.
+            Inflaton field values $\phi(N)$, same shape as ``N``.
         y : array-like
-            Field derivatives d phi / dN from the background evolution.
+            Field velocity $\pi(N) = \mathrm{d}\phi/\mathrm{d}N$, same shape
+            as ``N``.
         h : array-like
-            Rescaled Hubble parameter values from the background evolution.
+            Rescaled Hubble parameter $h(N)$, same shape as ``N``.
         params : tuple
-            Parameters forwarded to the potential ``V(phi, *params)``.
+            Extra parameters forwarded to the potential $V(\phi, *\mathrm{params})$.
 
         Returns
         -------
         numpy.ndarray
-            Dimensionful scalar power spectrum P_zeta, shape ``(len(k),)``.
+            Dimensionful scalar power spectrum $\mathcal{P}_\zeta(k)$, shape
+            ``(len(k),)``.
 
         Raises
         ------
         ConsistencyError
-            If the background does not contain enough e-folds to reach the CMB
-            scale, or to evolve the perturbations across the required window.
+            If the background trajectory is too short to reach the CMB pivot
+            scale, or if the horizon-crossing e-fold $N_k$ leaves insufficient
+            room to set Bunch-Davies initial conditions.
         """
         N_CMB = jnp.max(N) - self.N_CMB_to_end
         if N_CMB < 0.0:
@@ -726,41 +811,46 @@ class SingleFieldSolver:
         return Pzetas
 
     def run_single_k(self, k, N, phi, y, h, params):
-        """Solve the perturbation equations for a single wavenumber, saving all steps.
+        r"""Solve the Mukhanov-Sasaki equation for a single mode, retaining the full history.
 
-        Unlike `run_perturbations`, this method forces ``saveat=SaveAt(steps=True)``
-        so the full time series of the mode function is available for
-        inspection or plotting.
+        Identical to ``run_perturbations`` for one wavenumber, but the
+        complete mode-function trajectory
+        $(\phi, \pi, h, \mathrm{Re}\,\Delta\phi, \mathrm{Re}\,\Delta\phi',
+        \mathrm{Im}\,\Delta\phi, \mathrm{Im}\,\Delta\phi')$ is stored at every
+        adaptive step.  Useful for diagnosing oscillations, horizon crossing,
+        or super-horizon freeze-out behaviour.
 
         Parameters
         ----------
         k : float
-            Single wavenumber (in s^-1) to integrate.
+            Single comoving wavenumber in $\mathrm{s}^{-1}$.
         N : array-like
-            E-fold array from the background evolution.
+            E-fold array from ``run_background``.
         phi : array-like
-            Field values from the background evolution.
+            Inflaton field values $\phi(N)$.
         y : array-like
-            Field derivatives d phi / dN from the background evolution.
+            Field velocity $\pi(N) = \mathrm{d}\phi/\mathrm{d}N$.
         h : array-like
-            Rescaled Hubble parameter from the background evolution.
+            Rescaled Hubble parameter $h(N)$.
         params : tuple
-            Parameters forwarded to the potential ``V(phi, *params)``.
+            Extra parameters forwarded to the potential $V(\phi, *\mathrm{params})$.
 
         Returns
         -------
         sol : diffrax.Solution
-            Full ODE solution object with shape ``(steps, 7)`` state array
-            containing ``[phi, y, h, dPhiR, dPhiR', dPhiI, dPhiI']`` at each
-            saved step.
+            Full ODE solution; ``sol.ys`` has shape ``(steps, 7)`` with
+            columns $(\phi, \pi, h, \mathrm{Re}\,\Delta\phi,
+            \mathrm{Re}\,\Delta\phi', \mathrm{Im}\,\Delta\phi,
+            \mathrm{Im}\,\Delta\phi')$ at each saved step.
         lograt : float
-            log(k / aH) evaluated at the initial e-fold ``Nin``.
+            $\ln(k/aH)$ at the initial e-fold $N_{\rm in}$.
 
         Raises
         ------
         ConsistencyError
-            If there are insufficient e-folds to reach the CMB scale or to
-            evolve the mode across the required window.
+            If the background trajectory is too short to reach the CMB pivot
+            scale, or if $N_k$ leaves insufficient room for Bunch-Davies
+            initial conditions.
         """
         N_CMB = jnp.max(N) - self.N_CMB_to_end
         if N_CMB < 0.0:
@@ -804,32 +894,34 @@ class SingleFieldSolver:
         return sol, lograt
 
     def p_at_cmb(self, N, phi, y, h, params):
-        """Evaluate the Gaussian log-likelihood at the CMB pivot scale.
+        r"""Evaluate the CMB log-likelihood at the pivot scale using slow-roll observables.
 
-        Interpolates the background trajectory to the CMB scale (at
-        ``N_end - N_CMB_to_end``), computes the slow-roll observables
-        ``[ln(10^10 P_zeta), n_s, r]``, and evaluates the multivariate
-        Gaussian log-probability against ``cmb_means`` / ``cmb_cov``.
+        Interpolates the background to $N_{\rm CMB} = N_{\rm end} - N_{\rm CMB\_to\_end}$,
+        computes $[\ln(10^{10}\mathcal{P}_\zeta),\, n_s,\, r]$ in the
+        slow-roll approximation, and returns their multivariate-Gaussian
+        log-probability against the stored CMB priors.
 
         Parameters
         ----------
         N : array-like
-            E-fold array from the background evolution.
+            E-fold array from ``run_background``.
         phi : array-like
-            Field values from the background evolution.
+            Inflaton field values $\phi(N)$.
         y : array-like
-            Field derivatives d phi / dN from the background evolution.
+            Field velocity $\pi(N) = \mathrm{d}\phi/\mathrm{d}N$.
         h : array-like
-            Rescaled Hubble parameter from the background evolution.
+            Rescaled Hubble parameter $h(N)$.
         params : tuple
-            Parameters forwarded to the potential ``V(phi, *params)``.
+            Extra parameters forwarded to the potential $V(\phi, *\mathrm{params})$.
 
         Returns
         -------
         p : float
-            Multivariate-Gaussian log-likelihood of the CMB observables.
+            Multivariate-Gaussian log-likelihood
+            $\ln\mathcal{L}[\ln(10^{10}\mathcal{P}_\zeta),\, n_s,\, r]$.
         params_at_cmb : numpy.ndarray
-            Array ``[ln(10^10 P_zeta), n_s, r]`` evaluated at the CMB scale.
+            Array $[\ln(10^{10}\mathcal{P}_\zeta),\, n_s,\, r]$ evaluated at
+            the CMB pivot scale.
         """
         Nend = jnp.max(N)
         N_cmb = Nend - self.N_CMB_to_end
@@ -853,122 +945,135 @@ class SingleFieldSolver:
         return p, params_at_cmb
 
     def pzeta_sr(self, y, h, params):
-        r"""Slow-roll approximation for the scalar power spectrum P_zeta.
+        r"""Slow-roll estimate of the scalar power spectrum $\mathcal{P}_\zeta$.
 
-        Computes $P_\zeta \approx V({\phi_0}) \, h^2 / (4\pi^2 \, y^2)$
-        using the Hubble slow-roll parameter $\epsilon_H = y^2 / 2$.
+        Uses the standard slow-roll formula
+        $\mathcal{P}_\zeta \approx V(\phi_0)\,h^2 / (8\pi^2\,\epsilon_H)$
+        where $\epsilon_H = \pi^2/2$.  This is fast to evaluate along the
+        whole background trajectory and useful for comparison with the full
+        Mukhanov-Sasaki result.
 
         Parameters
         ----------
         y : float or array-like
-            Rescaled field derivative d phi / dN.
+            Field velocity $\pi = \mathrm{d}\phi/\mathrm{d}N$.
         h : float or array-like
-            Rescaled Hubble parameter (same shape as ``y``).
+            Rescaled Hubble parameter $h$, same shape as ``y``.
         params : tuple
-            Parameters forwarded to the potential ``V(phi, *params)``.
+            Extra parameters forwarded to $V(\phi, *\mathrm{params})$.
 
         Returns
         -------
         float or numpy.ndarray
-            Slow-roll estimate of the dimensionful scalar power spectrum
-            P_zeta.
+            Slow-roll approximation to $\mathcal{P}_\zeta$.
         """
         return self.V(self.phi0, *params) * h**2 / (8 * jnp.pi**2 * y**2 / 2)
 
     def epsilon_h(self, y):
-        r"""Compute the first Hubble slow-roll parameter $\epsilon_H = y^2 / 2$.
+        r"""First Hubble slow-roll parameter $\epsilon_H = \pi^2/2$.
+
+        $\epsilon_H$ measures how quickly the Hubble rate is changing:
+        $\epsilon_H = -\dot{H}/H^2$.  Inflation ends when $\epsilon_H = 1$.
 
         Parameters
         ----------
         y : float or array-like
-            Rescaled field derivative d phi / dN.
+            Field velocity $\pi = \mathrm{d}\phi/\mathrm{d}N$.
 
         Returns
         -------
         float or numpy.ndarray
-            First Hubble slow-roll parameter $\epsilon_H$.
+            $\epsilon_H = \pi^2/2$.
         """
         return y**2 / 2
 
     def eta_h(self, phi, y, h, params):
-        r"""Compute the second Hubble slow-roll parameter $\eta_H$.
+        r"""Second Hubble slow-roll parameter $\eta_H$.
+
+        $\eta_H$ characterises the curvature of the inflationary trajectory.
+        In slow roll $|\eta_H| \ll 1$; large $|\eta_H|$ signals departures
+        from slow roll (e.g. an inflection point).
 
         Parameters
         ----------
         phi : float or array-like
-            Inflaton field value.
+            Inflaton field value $\phi$.
         y : float or array-like
-            Rescaled field derivative d phi / dN (same shape as ``phi``).
+            Field velocity $\pi = \mathrm{d}\phi/\mathrm{d}N$, same shape as
+            ``phi``.
         h : float or array-like
-            Rescaled Hubble parameter (same shape as ``phi``).
+            Rescaled Hubble parameter $h$, same shape as ``phi``.
         params : tuple
-            Parameters forwarded to the potential ``V(phi, *params)``.
+            Extra parameters forwarded to $V(\phi, *\mathrm{params})$.
 
         Returns
         -------
         float or numpy.ndarray
-            Second Hubble slow-roll parameter $\eta_H$.
+            $\eta_H = -6 + 2\epsilon_H - U'(\phi)\,\pi / (\epsilon_H\,h^2)$.
         """
         eps = self.epsilon_h(y)
         return -6 + 2 * eps - self.Ud(phi, *params) * y / (eps * h**2)
 
     def n_s(self, epsilon_h, eta_h):
-        """Compute the scalar spectral index in the slow-roll approximation.
+        r"""Scalar spectral index $n_s$ in the slow-roll approximation.
+
+        A scale-invariant spectrum has $n_s = 1$; Planck measures
+        $n_s \approx 0.965$.
 
         Parameters
         ----------
         epsilon_h : float or array-like
-            First Hubble slow-roll parameter.
+            First Hubble slow-roll parameter $\epsilon_H$.
         eta_h : float or array-like
-            Second Hubble slow-roll parameter.
+            Second Hubble slow-roll parameter $\eta_H$.
 
         Returns
         -------
         float or numpy.ndarray
-            Scalar spectral index $n_s = 1 - 2\epsilon_H - \eta_H$.
+            $n_s = 1 - 2\epsilon_H - \eta_H$.
         """
         return 1 - 2 * epsilon_h - eta_h
 
     def r(self, epsilon_h):
-        """Compute the tensor-to-scalar ratio in the slow-roll approximation.
+        r"""Tensor-to-scalar ratio $r$ in the slow-roll approximation.
+
+        Current CMB upper limits place $r \lesssim 0.036$ (95% CL).
 
         Parameters
         ----------
         epsilon_h : float or array-like
-            First Hubble slow-roll parameter.
+            First Hubble slow-roll parameter $\epsilon_H$.
 
         Returns
         -------
         float or numpy.ndarray
-            Tensor-to-scalar ratio $r = 16\epsilon_H$.
+            $r = 16\,\epsilon_H$.
         """
         return 16 * epsilon_h
 
     def run(self, k, *params):
-        r"""Compute P_zeta(k) and return a callable interpolant.
+        r"""Compute $\mathcal{P}_\zeta(k)$ and return a callable interpolant.
 
-        Runs the background evolution, optionally checks CMB consistency, then
-        solves the Mukhanov-Sasaki equations for each wavenumber in ``k``.
-        The result is fitted with a cubic Hermite interpolant so that the
-        returned callable can be evaluated at arbitrary wavenumbers inside the
-        original ``k`` range.
-
-        This is the entry point used by
+        Runs the full background + perturbation calculation over the
+        wavenumber grid ``k`` and fits a cubic-Hermite spline to the result.
+        The returned callable can then be evaluated at any $k$ inside the
+        original grid.  This is the entry point used by
         [SingleFieldPerturbations][sigway.perturbations.SingleFieldPerturbations].
 
         Parameters
         ----------
         k : array-like
-            Wavenumber grid (in s^-1) at which to solve the perturbation
-            equations.
+            Comoving wavenumber grid in $\mathrm{s}^{-1}$ at which to solve
+            the Mukhanov-Sasaki equation.
         *params : float
-            Scalar parameters forwarded to the potential ``V(phi, *params)``.
+            Scalar potential parameters forwarded to $V(\phi, *\mathrm{params})$.
 
         Returns
         -------
         callable
             A function ``P_zeta_interpolation(k_new)`` that evaluates the
-            cubic-Hermite interpolant of P_zeta at wavenumbers ``k_new``.
+            cubic-Hermite interpolant of $\mathcal{P}_\zeta$ at wavenumbers
+            ``k_new`` within the original ``k`` range.
         """
         params = jnp.array(params)
         # Compute background evolution
@@ -990,24 +1095,24 @@ class SingleFieldSolver:
         return P_zeta_interpolation
 
     def __call__(self, k, *params):
-        r"""Compute and return the raw P_zeta array evaluated at ``k``.
+        r"""Compute and return the raw $\mathcal{P}_\zeta$ array at ``k``.
 
-        Equivalent to `run` but returns the power-spectrum values directly
-        rather than an interpolating callable.
+        Identical to ``run`` but returns the power-spectrum values directly
+        instead of a callable interpolant.  Convenient for quickly plotting
+        or fitting the spectrum at a fixed parameter set.
 
         Parameters
         ----------
         k : array-like
-            Wavenumber grid (in s^-1) at which to solve the perturbation
-            equations.
+            Comoving wavenumber grid in $\mathrm{s}^{-1}$.
         *params : float
-            Scalar parameters forwarded to the potential ``V(phi, *params)``.
+            Scalar potential parameters forwarded to $V(\phi, *\mathrm{params})$.
 
         Returns
         -------
         numpy.ndarray
-            Dimensionful scalar power spectrum P_zeta evaluated at each
-            wavenumber in ``k``.
+            Dimensionful scalar power spectrum $\mathcal{P}_\zeta(k)$
+            evaluated at each wavenumber in ``k``.
         """
         params = jnp.array(params)
         # Compute background evolution
@@ -1022,26 +1127,33 @@ class SingleFieldSolver:
         return P_zeta
 
     def plot_evolution(self, k, params):
-        """Plot the background evolution and scalar power spectrum.
+        r"""Plot the background evolution and scalar power spectrum.
 
-        Produces a five-panel figure showing (from top to bottom):
-        P_zeta (slow-roll approximation vs full Mukhanov-Sasaki result),
-        slow-roll parameters epsilon_H and |eta_H|, the rescaled field phi,
-        -y = -d phi / dN, and the rescaled Hubble parameter h.  A vertical
-        dashed line marks the CMB pivot scale; the top panel has a secondary
-        x-axis showing the corresponding wavenumber k.
+        Produces a five-panel figure (e-folds $N - N_{\rm end}$ on the
+        shared x-axis) showing, from top to bottom:
+
+        1. $\mathcal{P}_\zeta(k)$: slow-roll approximation vs. full
+           Mukhanov-Sasaki result.
+        2. Slow-roll parameters $\epsilon_H$ and $|\eta_H|$.
+        3. Inflaton field $\phi$.
+        4. Field velocity $-\pi = -\mathrm{d}\phi/\mathrm{d}N$.
+        5. Rescaled Hubble parameter $h$.
+
+        A vertical dashed line marks the CMB pivot scale; the top panel has
+        a secondary x-axis labelled in $k\,[\mathrm{s}^{-1}]$.
 
         Parameters
         ----------
         k : array-like
-            Wavenumber grid (in s^-1) used for the full perturbation run.
+            Comoving wavenumber grid in $\mathrm{s}^{-1}$ for the full
+            perturbation run.
         params : tuple
-            Parameters forwarded to the potential ``V(phi, *params)``.
+            Extra parameters forwarded to the potential $V(\phi, *\mathrm{params})$.
 
         Returns
         -------
         matplotlib.figure.Figure
-            Figure object containing the five-panel plot.
+            Five-panel figure of the background and perturbation evolution.
         """
         # Compute background evolution
         N, phi, y, h = self.run_background(params)
@@ -1139,20 +1251,21 @@ class SingleFieldSolver:
     def plot_potential(
         self, params, phi_range=None, n_points=1000, relative=False
     ):
-        """Plot the inflaton potential V(phi).
+        r"""Plot the inflaton potential $V(\phi)$.
 
         Parameters
         ----------
         params : tuple
-            Parameters forwarded to the potential ``V(phi, *params)``.
+            Extra parameters forwarded to $V(\phi, *\mathrm{params})$.
         phi_range : tuple of float, optional
-            ``(phi_min, phi_max)`` range for the plot.  Defaults to
-            ``(0.1 * phi0, 2 * phi0)``.
+            ``(phi_min, phi_max)`` field range for the plot.  Defaults to
+            $(0.1\,\phi_0,\; 2\,\phi_0)$.
         n_points : int, optional
-            Number of field values at which to evaluate V.  Default ``1000``.
+            Number of field-value samples at which to evaluate $V$.
+            Default ``1000``.
         relative : bool, optional
-            If ``True``, plot V / V(phi0) on the y-axis and phi / phi0 on
-            the x-axis.  Default ``False``.
+            If ``True``, plot $V/V(\phi_0)$ vs. $\phi/\phi_0$ (dimensionless
+            axes).  Default ``False``.
 
         Returns
         -------
