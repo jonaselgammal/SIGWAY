@@ -125,7 +125,7 @@ $\zeta=\zeta_g+\tfrac{3}{5}f_{\mathrm{NL}}\!\left(\zeta_g^2-\langle\zeta_g^2\ran
 the extra contributions scale as $f_{\mathrm{NL}}^2$ (plus Gaussian–NG cross terms) and can
 **dominate** the signal when the enhancement is itself produced non-linearly. SIGWAY
 currently evaluates the **Gaussian** piece; the non-Gaussian contributions are an active
-research direction and a target of the extensions.
+research direction.
 
 This perturbative organisation (order by order in $B_\zeta$, $T_\zeta$, …) becomes unwieldy
 when $f_{\mathrm{NL}}$ is large and many $n$-point functions contribute. A complementary,
