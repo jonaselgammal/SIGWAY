@@ -178,3 +178,4 @@ logo/
 !docs/assets/images/*.png
 !docs/assets/images/*.ico
 !brand/*.svg
+!docs/assets/images/figures/*.svg
