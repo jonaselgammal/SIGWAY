@@ -1,5 +1,7 @@
+# Build the docs site:
 mkdocs-material>=9.5
 pymdown-extensions>=10
-# finalized locally (need the package importable / jax):
-mkdocstrings[python]>=0.24
-mkdocs-jupyter>=0.24
+mkdocstrings[python]>=0.24       # API reference (imports sigway -> needs jax etc.)
+
+# Regenerating the example notebooks / figures (dev env with sigway installed):
+#   jupyter, nbconvert, matplotlib

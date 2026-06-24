@@ -43,27 +43,46 @@ markdown_extensions:
       permalink: true
   - pymdownx.arithmatex:
       generic: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
   - pymdownx.highlight:
       anchor_linenums: true
   - pymdownx.inlinehilite
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.details
   - pymdownx.tabbed:
       alternate_style: true
 
 plugins:
   - search
-  # Enabled locally once the package is importable (need jax etc.):
-  # - mkdocstrings:
-  #     handlers: { python: { options: { docstring_style: numpy } } }
-  # - mkdocs-jupyter
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: numpy
+            show_root_heading: true
+            show_source: false
+            heading_level: 2
+            separate_signature: true
+            merge_init_into_class: true
 
 nav:
   - Home: index.md
   - Getting started:
       - Installation: getting-started/installation.md
-      - Simple example: getting-started/simple-example.md
-      - Advanced example: getting-started/advanced-example.md
+      - Simple example: examples/simple_example.md
+      - Components tour: examples/advanced_example.md
   - Theory & modelling: theory/index.md
-  - API reference: api/index.md
+  - API reference:
+      - Overview: api/index.md
+      - Spectrum (OmegaGW): api/spectrum.md
+      - Kernels: api/kernels.md
+      - Perturbations: api/perturbations.md
+      - Integrators: api/integrators.md
+      - MS solver: api/ms_solver.md
   - Extensions: extensions/index.md
