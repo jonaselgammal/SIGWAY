@@ -55,6 +55,7 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import LogLocator, NullFormatter, FormatStrFormatter
 
 # Local
+from sigway.constants import CMB_BOUNDS
 from sigway.utils import (
     efolds_from_wavenumber_si_units,
     H_from_wavenumber,
@@ -241,10 +242,12 @@ def _solve_perturbations(
     # Bunch-Davies vacuum initial conditions for the mode function
     # at N_in (deep inside the horizon).  The normalisation sets the
     # standard quantum vacuum amplitude; the imaginary part starts at zero.
-    dPhiRin = 1.0      # $\mathrm{Re}\,\widetilde{\Delta\phi}$ at $N_{\rm in}$
-    dPhiRpRin = -1.0   # $\mathrm{d}(\mathrm{Re}\,\widetilde{\Delta\phi})/\mathrm{d}N$ at $N_{\rm in}$
-    dPhiIin = 0.0      # $\mathrm{Im}\,\widetilde{\Delta\phi}$ at $N_{\rm in}$
-    dPhiIpIin = 0.0    # $\mathrm{d}(\mathrm{Im}\,\widetilde{\Delta\phi})/\mathrm{d}N$ at $N_{\rm in}$
+    dPhiRin = 1.0  # $\mathrm{Re}\,\widetilde{\Delta\phi}$ at $N_{\rm in}$
+    dPhiRpRin = (
+        -1.0
+    )  # $\mathrm{d}(\mathrm{Re}\,\widetilde{\Delta\phi})/\mathrm{d}N$ at $N_{\rm in}$
+    dPhiIin = 0.0  # $\mathrm{Im}\,\widetilde{\Delta\phi}$ at $N_{\rm in}$
+    dPhiIpIin = 0.0  # $\mathrm{d}(\mathrm{Im}\,\widetilde{\Delta\phi})/\mathrm{d}N$ at $N_{\rm in}$
 
     def equations_perturbations(n, variables, args):
         r"""
@@ -398,9 +401,9 @@ def _run_perturbations(
     return Pzeta_by_V0
 
 
-class SolverOptions(namedtuple(
-    "SolverOptions", ["rtol", "atol", "max_steps", "dt0", "saveat"]
-)):
+class SolverOptions(
+    namedtuple("SolverOptions", ["rtol", "atol", "max_steps", "dt0", "saveat"])
+):
     r"""Numerical settings for the adaptive ODE integrator (diffrax Tsit5).
 
     One instance is used for the background solver and a separate one for the
@@ -552,7 +555,7 @@ class SingleFieldSolver:
         pi0=0.0,
         N_CMB_to_end=65.0,
         max_efolds=1000.0,
-        cmb_bounds={},
+        cmb_bounds=CMB_BOUNDS,
         check_consistency=False,
         N_subhorizon=3.0,
         N_suphorizon=7.0,
@@ -580,12 +583,12 @@ class SingleFieldSolver:
         self.U = lambda phi, *p: self.V(phi, *p) / self.V(
             self.phi0, *p
         )  # $U(\phi) = V(\phi)/V(\phi_0)$, normalised to unity at $\phi_0$
-        self.Ud = jax.grad(self.U)    # $\partial U/\partial\phi$
+        self.Ud = jax.grad(self.U)  # $\partial U/\partial\phi$
         self.Udd = jax.grad(self.Ud)  # $\partial^2 U/\partial\phi^2$
 
         # Initial field conditions.
         self.phi0 = phi0  # $\phi_0$: starting field value
-        self.pi0 = pi0    # $\pi_0 = \mathrm{d}\phi/\mathrm{d}N|_0$ (stored; slow-roll attractor used in practice)
+        self.pi0 = pi0  # $\pi_0 = \mathrm{d}\phi/\mathrm{d}N|_0$ (stored; slow-roll attractor used in practice)
 
         # Number of e-folds from the CMB pivot scale to the end of inflation.
         # Assuming instantaneous reheating fixes the absolute k-to-N mapping.
@@ -602,19 +605,8 @@ class SingleFieldSolver:
 
         # CMB consistency check settings.
         self.check_consistency = check_consistency
-        self.cmb_means = cmb_bounds.get(
-            "means", jnp.array([3.04442188, 0.96488871, 0.0])
-        )
-        self.cmb_cov = cmb_bounds.get(
-            "cov",
-            jnp.array(
-                [
-                    [2.00112315e-04, 1.35106101e-05, 0.0],
-                    [1.35106101e-05, 1.72537423e-05, 0.0],
-                    [0.0, 0.0, 0.01],
-                ]
-            ),
-        )
+        self.cmb_means = cmb_bounds.get("means")
+        self.cmb_cov = cmb_bounds.get("cov")
 
         if k is None:  # If k is None, no upsampling
             self.k = k

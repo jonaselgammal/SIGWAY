@@ -25,6 +25,10 @@ import jax
 from jax import jit
 from jax import numpy as jnp
 
+# Local
+from sigway.constants import CMB_scale_k
+
+# enable 64-bit precision for JAX computations
 jax.config.update("jax_enable_x64", True)
 
 
