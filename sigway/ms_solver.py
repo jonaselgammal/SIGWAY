@@ -1086,6 +1086,7 @@ class SingleFieldSolver:
 
         return P_zeta_interpolation
 
+    # NB: We can reuse this above to avoid doubled code
     def __call__(self, k, *params):
         r"""Compute and return the raw $\mathcal{P}_\zeta$ array at ``k``.
 
