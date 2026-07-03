@@ -8,9 +8,8 @@ import jax.numpy as jnp
 from jax import jit, jvp
 
 # Local
+from sigway.constants import SM_CG_factor, Omega_radiation_h2_today
 from sigway.utils import (
-    SM_CG_factor,
-    Omega_radiation_h2_today,
     simpson_uniform,
     simpson_nonuniform,
 )

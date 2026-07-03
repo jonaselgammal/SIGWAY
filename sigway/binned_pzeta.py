@@ -15,6 +15,8 @@ from jax import jit
 from jax import config
 import matplotlib.pyplot as plt
 
+from sigway.constants import Omega_radiation_h2_today, SM_CG_factor
+
 config.update("jax_enable_x64", True)
 
 
@@ -272,10 +274,6 @@ class Binned_P_zeta:
             ``path_to_C`` is ``None``), or if the path given by ``path_to_C``
             does not exist.
         """
-        # Constants
-        OMEGA_R = 4.2 * 10 ** (-5)
-        CG = 0.39
-
         # Load the coefficients
         if path_to_C is None:
             try:
@@ -316,7 +314,7 @@ class Binned_P_zeta:
 
         self.parameterLabels = list(self.parameterNames.values())
         if norm == "RD":
-            self.norm = lambda k: CG * OMEGA_R
+            self.norm = lambda k: SM_CG_factor * Omega_radiation_h2_today
         if norm == "CT":
             self.norm = lambda k: 1.0
         elif callable(norm):

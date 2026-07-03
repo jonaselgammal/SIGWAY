@@ -42,7 +42,11 @@ from jax import jit, lax
 from jax.scipy.special import sici
 
 # Local
-from sigway.utils import SM_CG_factor, Omega_radiation_h2_today
+from sigway.constants import (
+    SM_CG_factor,
+    Omega_radiation_h2_today,
+    RD_SOUND_SPEED,
+)
 
 jax.config.update("jax_enable_x64", True)
 
@@ -172,7 +176,7 @@ def I_sq_RD_uv(t, s, k):
     u = get_u(t, s)
     v = get_v(t, s)
 
-    # An auxiliary factor used in several places below
+    # An auxiliary factor used in several places below (3 = 1/c_s^2, w = 1/3)
     factor = u**2 + v**2 - 3.0
 
     # These are the terms in 4.22 of [arXiv:2501.11320](https://arxiv.org/abs/2501.11320)
@@ -180,7 +184,8 @@ def I_sq_RD_uv(t, s, k):
     IB = -4.0 * u * v + factor * jnp.log(
         jnp.abs((3.0 - (u + v) ** 2) / ((3.0 - (u - v) ** 2)))
     )
-    IC = jnp.pi * factor * jnp.heaviside(u + v - jnp.sqrt(3), 1)
+    # resonance onset u + v > 1/c_s = sqrt(3)
+    IC = jnp.pi * factor * jnp.heaviside(u + v - 1.0 / RD_SOUND_SPEED, 1)
 
     return IA**2 * (IB**2 + IC**2) / 2.0
 
@@ -227,6 +232,7 @@ def I_sq_RD(t, s, k):
     )
 
     # This is IB**2 from eq. 4.21 of [arXiv:2501.11320](https://arxiv.org/abs/2501.11320)
+    # (the 3 in 3 - s**2 below is 1/c_s^2 for w = 1/3)
     log_term = (
         (-1.0 + s - t) * (1.0 + s + t)
         + (
@@ -240,7 +246,7 @@ def I_sq_RD(t, s, k):
     heaviside_term = (
         jnp.pi**2
         * (-5.0 + s**2 + t * (2.0 + t)) ** 2
-        * jnp.heaviside(1.0 - jnp.sqrt(3.0) + t, 1)
+        * jnp.heaviside(1.0 - 1.0 / RD_SOUND_SPEED + t, 1)  # t > 1/c_s - 1
     ) / 4.0
 
     return prefactor * (log_term + heaviside_term)
@@ -836,7 +842,7 @@ class InstantEMDKernel(Kernel):
 
     k_dependent = True
     param_names = ("etaR",)
-    resonant_t = (3.0**0.5 - 1.0,)
+    resonant_t = (1.0 / RD_SOUND_SPEED - 1.0,)  # t = 1/c_s - 1 (sound-horizon)
     _default_norm = "CT"
 
     def overline_Isq(self, t, s, k, etaR):
