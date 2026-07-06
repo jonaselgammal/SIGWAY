@@ -2,7 +2,7 @@
 
 These lock the *current* numerical behaviour of ``SingleFieldSolver`` so the
 planned refactor (merging the solver into ``SingleFieldPerturbations``, deduping
-``run``/``__call__`` and ``run_perturbations``/``run_single_k``, moving the EOM
+``run``/``__call__`` and ``run_perturbations``/``_mode_history``, moving the EOM
 cores to staticmethods, extracting the diagnostics/plots) can be shown to be
 behaviour-preserving. They are snapshots, not physics assertions -- the physics
 lives in ``test_ms_solver.py`` and ``test_omega_gw_regression.py``.
@@ -112,7 +112,7 @@ def _compute(cfg):
     psr_a = np.asarray(s.pzeta_sr(jnp.asarray(y_a), jnp.asarray(h_a), p))
 
     k_rep = float(np.asarray(k)[len(np.asarray(k)) // 2])
-    sol, lograt = s.run_single_k(k_rep, N, phi, y, h, p)
+    sol, lograt = s._mode_history(k_rep, N, phi, y, h, p)
     ys = np.asarray(sol.ys)
     valid = np.all(np.isfinite(ys), axis=1)
     single_final = ys[valid][-1][[1, 3, 5]]

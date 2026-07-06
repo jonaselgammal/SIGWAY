@@ -721,6 +721,42 @@ class SingleFieldSolver:
         h = bsolf[:, 2]
         return N, phi, dphidN, h
 
+    def _horizon_window(self, k, N, phi, dphidN, h):
+        r"""Bunch-Davies -> freeze-out integration window for mode(s) ``k``.
+
+        Locates the horizon-crossing e-fold $N_k$ ($k = aH$) for each ``k``,
+        brackets it with ``N_subhorizon`` e-folds before (to set Bunch-Davies
+        initial conditions) and ``N_suphorizon`` after (super-horizon
+        freeze-out), and interpolates the background onto $N_{\rm in}$ with a
+        cubic spline.  Shared by :meth:`run_perturbations` (vectorised over the
+        ``k`` grid) and :meth:`_mode_history` (a single ``k``).
+
+        Returns ``(Nin, Nout, lograt, phiIn, dphidN_in, hIn)``.
+
+        Raises
+        ------
+        ConsistencyError
+            If the background is too short to reach the CMB pivot, or $N_k$
+            leaves no room for the Bunch-Davies initialisation.
+        """
+        N_CMB = jnp.max(N) - self.N_CMB_to_end
+        if N_CMB < 0.0:
+            raise ConsistencyError("Not enough e-folds to reach the CMB scale")
+        H_CMB = jnp.interp(N_CMB, N, h)
+        Hk = H_from_wavenumber(k, N, h, N_CMB, H_CMB)
+        Nk = efolds_from_wavenumber_si_units(k, Hk, N_CMB, H_CMB)
+        if jnp.min(Nk) < self.N_subhorizon:
+            raise ConsistencyError(
+                "Not enough e-folds to solve for perturbations"
+            )
+        Nin = Nk - self.N_subhorizon
+        Nout = Nk + self.N_suphorizon
+        phiIn = CubicSpline(N, phi)(Nin)
+        dphidN_in = CubicSpline(N, dphidN)(Nin)
+        hIn = CubicSpline(N, h)(Nin)
+        lograt = jnp.log(Hk) + self.N_subhorizon
+        return Nin, Nout, lograt, phiIn, dphidN_in, hIn
+
     def run_perturbations(self, k, N, phi, dphidN, h, params):
         r"""Solve the Mukhanov-Sasaki equation for all modes and return $\mathcal{P}_\zeta(k)$.
 
@@ -758,26 +794,9 @@ class SingleFieldSolver:
             scale, or if the horizon-crossing e-fold $N_k$ leaves insufficient
             room to set Bunch-Davies initial conditions.
         """
-        N_CMB = jnp.max(N) - self.N_CMB_to_end
-        if N_CMB < 0.0:
-            raise ConsistencyError("Not enough e-folds to reach the CMB scale")
-        H_CMB = jnp.interp(N_CMB, N, h)
-        Hk = H_from_wavenumber(k, N, h, N_CMB, H_CMB)
-        Nk = efolds_from_wavenumber_si_units(k, Hk, N_CMB, H_CMB)
-
-        # Check that we have enough e-folds to evolve the perturbations
-        if jnp.min(Nk) < self.N_subhorizon:
-            raise ConsistencyError(
-                "Not enough e-folds to solve for perturbations"
-            )
-
-        Nin = Nk - self.N_subhorizon
-        Nout = Nk + self.N_suphorizon
-
-        phiIn = CubicSpline(N, phi)(Nin)
-        dphidN_in = CubicSpline(N, dphidN)(Nin)
-        hIn = CubicSpline(N, h)(Nin)
-        lograt = jnp.log(Hk) + self.N_subhorizon
+        Nin, Nout, lograt, phiIn, dphidN_in, hIn = self._horizon_window(
+            k, N, phi, dphidN, h
+        )
 
         # Compute the perturbations with vmap
         compute_Pzeta = jax.vmap(
@@ -800,86 +819,24 @@ class SingleFieldSolver:
         Pzetas *= self.V(self.phi0, *params)
         return Pzetas
 
-    def run_single_k(self, k, N, phi, dphidN, h, params):
-        r"""Solve the Mukhanov-Sasaki equation for a single mode, retaining the full history.
+    def _mode_history(self, k, N, phi, dphidN, h, params):
+        r"""Full mode-function trajectory for a single wavenumber (diagnostic).
 
-        Identical to ``run_perturbations`` for one wavenumber, but the
-        complete mode-function trajectory
-        $(\phi, \pi, h, \mathrm{Re}\,\Delta\phi, \mathrm{Re}\,\Delta\phi',
-        \mathrm{Im}\,\Delta\phi, \mathrm{Im}\,\Delta\phi')$ is stored at every
-        adaptive step.  Useful for diagnosing oscillations, horizon crossing,
-        or super-horizon freeze-out behaviour.
-
-        Parameters
-        ----------
-        k : float
-            Single comoving wavenumber in $\mathrm{s}^{-1}$.
-        N : array-like
-            E-fold array from ``run_background``.
-        phi : array-like
-            Inflaton field values $\phi(N)$.
-        dphidN : array-like
-            Field velocity $\pi(N) = \mathrm{d}\phi/\mathrm{d}N$.
-        h : array-like
-            Rescaled Hubble parameter $h(N)$.
-        params : tuple
-            Extra parameters forwarded to the potential $V(\phi, *\mathrm{params})$.
-
-        Returns
-        -------
-        sol : diffrax.Solution
-            Full ODE solution; ``sol.ys`` has shape ``(steps, 7)`` with
-            columns $(\phi, \pi, h, \mathrm{Re}\,\Delta\phi,
-            \mathrm{Re}\,\Delta\phi', \mathrm{Im}\,\Delta\phi,
-            \mathrm{Im}\,\Delta\phi')$ at each saved step.
-        lograt : float
-            $\ln(k/aH)$ at the initial e-fold $N_{\rm in}$.
-
-        Raises
-        ------
-        ConsistencyError
-            If the background trajectory is too short to reach the CMB pivot
-            scale, or if $N_k$ leaves insufficient room for Bunch-Davies
-            initial conditions.
+        Like :meth:`run_perturbations` for one ``k``, but retains every
+        adaptive step (``SaveAt(steps=True)``) so the complete evolution of
+        $(\phi, \pi, h, \mathrm{Re}\,\Delta\phi, \ldots)$ is available for
+        inspecting oscillations, horizon crossing, or freeze-out.  Returns the
+        raw diffrax solution and $\ln(k/aH)$ at $N_{\rm in}$.
         """
-        N_CMB = jnp.max(N) - self.N_CMB_to_end
-        if N_CMB < 0.0:
-            raise ConsistencyError("Not enough e-folds to reach the CMB scale")
-        H_CMB = jnp.interp(N_CMB, N, h)
-        Hk = H_from_wavenumber(k, N, h, N_CMB, H_CMB)
-        Nk = efolds_from_wavenumber_si_units(k, Hk, N_CMB, H_CMB)
-
-        # Check that we have enough e-folds to evolve the perturbations
-        if jnp.min(Nk) < self.N_subhorizon:
-            raise ConsistencyError(
-                "Not enough e-folds to solve for perturbations"
-            )
-
-        Nin = Nk - self.N_subhorizon
-        Nout = Nk + self.N_suphorizon
-
-        phiIn = jnp.interp(Nin, N, phi)
-        dphidN_in = jnp.interp(Nin, N, dphidN)
-        # dphidN_out = jnp.interp(Nout, N, dphidN)
-        hIn = jnp.interp(Nin, N, h)
-        lograt = jnp.log(Hk) + self.N_subhorizon
-
-        # We need to make sure that we are saving the solution at each step.
+        Nin, Nout, lograt, phiIn, dphidN_in, hIn = self._horizon_window(
+            k, N, phi, dphidN, h
+        )
         solver_opts = self.perturbation_solver_opts._replace(
             saveat=SaveAt(steps=True)
         )
-        # Compute the perturbations with vmap
         sol = _solve_mode(
-            self.Ud,
-            self.Udd,
-            phiIn,
-            dphidN_in,
-            hIn,
-            Nin,
-            Nout,
-            lograt,
-            params,
-            solver_opts,
+            self.Ud, self.Udd, phiIn, dphidN_in, hIn, Nin, Nout, lograt,
+            params, solver_opts,
         )
         return sol, lograt
 
