@@ -31,8 +31,7 @@ import jax
 from jax import numpy as jnp
 from jax import jit
 
-from jax.scipy.stats import multivariate_normal
-
+import warnings
 from collections import namedtuple
 
 from diffrax import (
@@ -55,7 +54,7 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import LogLocator, NullFormatter, FormatStrFormatter
 
 # Local
-from sigway.constants import CMB_BOUNDS
+from sigway.constants import CMB_means, CMB_cov
 from sigway.utils import (
     efolds_from_wavenumber_si_units,
     H_from_wavenumber,
@@ -502,17 +501,12 @@ class SingleFieldSolver:
         Hard upper limit on the number of e-folds integrated for the
         background.  Increase this for models with very long inflationary
         phases.  Default ``1000.0``.
-    cmb_bounds : dict, optional
-        Gaussian CMB observational priors on
-        $[\ln(10^{10}\mathcal{P}_\zeta),\, n_s,\, r]$, supplied as a dict
-        with keys ``"means"`` (shape ``(3,)``) and ``"cov"`` (shape
-        ``(3, 3)``).  Used only when ``check_consistency=True``.  Defaults
-        to Planck 2018 best-fit values.
-    check_consistency : bool, optional
-        If ``True``, compute the Gaussian log-likelihood of the slow-roll
-        CMB observables against ``cmb_bounds`` after the background run.
-        Informational only; does not affect the perturbation calculation.
-        Default ``False``.
+    cmb_check : bool, optional
+        If ``True``, emit a ``UserWarning`` whenever the model's slow-roll CMB
+        observables $[\ln(10^{10}\mathcal{P}_\zeta),\, n_s,\, r]$ sit
+        $\geq 3\sigma$ from the Planck 2018 prior (``constants.CMB_means`` /
+        ``CMB_cov``), reporting the distance.  Purely diagnostic -- it never
+        affects the returned spectrum.  Default ``False``.
     N_subhorizon : float, optional
         Number of e-folds before horizon crossing ($k = aH$) at which to
         impose Bunch-Davies vacuum initial conditions on each mode.
@@ -572,8 +566,7 @@ class SingleFieldSolver:
         pi0=0.0,
         N_CMB_to_end=65.0,
         max_efolds=1000.0,
-        cmb_bounds=CMB_BOUNDS,
-        check_consistency=False,
+        cmb_check=False,
         N_subhorizon=3.0,
         N_suphorizon=7.0,
         k=None,
@@ -620,10 +613,9 @@ class SingleFieldSolver:
         self.N_subhorizon = N_subhorizon
         self.N_suphorizon = N_suphorizon
 
-        # CMB consistency check settings.
-        self.check_consistency = check_consistency
-        self.cmb_means = cmb_bounds.get("means")
-        self.cmb_cov = cmb_bounds.get("cov")
+        # Optional (default-off) diagnostic: warn if the model's slow-roll CMB
+        # observables sit >=3 sigma from the Planck prior.  Never affects output.
+        self.cmb_check = cmb_check
 
         if k is None:  # If k is None, no upsampling
             self.k = k
@@ -840,56 +832,46 @@ class SingleFieldSolver:
         )
         return sol, lograt
 
-    def p_at_cmb(self, N, phi, dphidN, h, params):
-        r"""Evaluate the CMB log-likelihood at the pivot scale using slow-roll observables.
+    def cmb_observables(self, N, phi, dphidN, h, params):
+        r"""Slow-roll CMB observables $[\ln(10^{10}\mathcal{P}_\zeta),\, n_s,\, r]$.
 
-        Interpolates the background to $N_{\rm CMB} = N_{\rm end} - N_{\rm CMB\_to\_end}$,
-        computes $[\ln(10^{10}\mathcal{P}_\zeta),\, n_s,\, r]$ in the
-        slow-roll approximation, and returns their multivariate-Gaussian
-        log-probability against the stored CMB priors.
-
-        Parameters
-        ----------
-        N : array-like
-            E-fold array from ``run_background``.
-        phi : array-like
-            Inflaton field values $\phi(N)$.
-        dphidN : array-like
-            Field velocity $\pi(N) = \mathrm{d}\phi/\mathrm{d}N$.
-        h : array-like
-            Rescaled Hubble parameter $h(N)$.
-        params : tuple
-            Extra parameters forwarded to the potential $V(\phi, *\mathrm{params})$.
-
-        Returns
-        -------
-        p : float
-            Multivariate-Gaussian log-likelihood
-            $\ln\mathcal{L}[\ln(10^{10}\mathcal{P}_\zeta),\, n_s,\, r]$.
-        params_at_cmb : numpy.ndarray
-            Array $[\ln(10^{10}\mathcal{P}_\zeta),\, n_s,\, r]$ evaluated at
-            the CMB pivot scale.
+        Interpolates the background to the CMB pivot
+        $N_{\rm CMB} = N_{\rm end} - N_{\rm CMB\_to\_end}$ and evaluates the
+        three observables in the slow-roll approximation.
         """
-        Nend = jnp.max(N)
-        N_cmb = Nend - self.N_CMB_to_end
-
+        N_cmb = jnp.max(N) - self.N_CMB_to_end
         phi_cmb = jnp.interp(N_cmb, N, phi)
         dphidN_cmb = jnp.interp(N_cmb, N, dphidN)
         h_cmb = jnp.interp(N_cmb, N, h)
-        epsilon_cmb = self.epsilon_h(dphidN_cmb)
-        eta_cmb = self.eta_h(phi_cmb, dphidN_cmb, h_cmb, params)
-        params_at_cmb = jnp.array(
+        eps = self.epsilon_h(dphidN_cmb)
+        eta = self.eta_h(phi_cmb, dphidN_cmb, h_cmb, params)
+        return jnp.array(
             [
                 jnp.log(1e10 * self.pzeta_sr(dphidN_cmb, h_cmb, params)),
-                self.n_s(epsilon_cmb, eta_cmb),
-                self.r(epsilon_cmb),
+                self.n_s(eps, eta),
+                self.r(eps),
             ]
         )
 
-        p = multivariate_normal.logpdf(
-            params_at_cmb, mean=self.cmb_means, cov=self.cmb_cov
-        )
-        return p, params_at_cmb
+    def _warn_if_cmb_outlier(self, N, phi, dphidN, h, params):
+        r"""Warn if the model is $\geq 3\sigma$ from the Planck CMB prior.
+
+        Computes the Mahalanobis distance of the slow-roll observables
+        $[\ln(10^{10}\mathcal{P}_\zeta),\, n_s,\, r]$ from the Planck 2018 prior
+        (``constants.CMB_means``/``CMB_cov``).  If it exceeds $3\sigma$ a
+        ``UserWarning`` is emitted reporting the value.  Purely diagnostic --
+        it never changes the returned spectrum.  Returns the distance in sigma.
+        """
+        delta = self.cmb_observables(N, phi, dphidN, h, params) - CMB_means
+        n_sigma = float(jnp.sqrt(delta @ jnp.linalg.solve(CMB_cov, delta)))
+        if n_sigma >= 3.0:
+            warnings.warn(
+                f"Inflationary model is {n_sigma:.1f} sigma from the Planck "
+                "2018 CMB constraints on (ln[1e10 P_zeta], n_s, r); the "
+                "spectrum is still returned.",
+                stacklevel=2,
+            )
+        return n_sigma
 
     def pzeta_sr(self, dphidN, h, params):
         r"""Slow-roll estimate of the scalar power spectrum $\mathcal{P}_\zeta$.
@@ -1008,8 +990,8 @@ class SingleFieldSolver:
         """
         params = jnp.array(params)
         N, phi, dphidN, h = self.run_background(params)
-        if self.check_consistency:
-            _ = self.p_at_cmb(N, phi, dphidN, h, params)
+        if self.cmb_check:
+            self._warn_if_cmb_outlier(N, phi, dphidN, h, params)
         return self.run_perturbations(k, N, phi, dphidN, h, params)
 
     def run(self, k, *params):
