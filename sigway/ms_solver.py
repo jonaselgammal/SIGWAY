@@ -441,9 +441,17 @@ class SolverOptions(
     """
 
 
-@jit
-def interpolation_inner(knew, k, coeff):
-    return CubicInterpolation(k, coeff).evaluate(knew)
+def _merge_solver_opts(defaults, overrides, label):
+    """Apply an ``overrides`` dict on top of a default ``SolverOptions``.
+
+    Returns ``defaults`` with the given fields replaced.  Unknown keys raise a
+    ``ValueError`` naming the offending option (``namedtuple._replace`` already
+    rejects them; we just wrap it with a clearer message).
+    """
+    try:
+        return defaults._replace(**(overrides or {}))
+    except (ValueError, TypeError) as exc:
+        raise ValueError(f"Invalid options in {label}_solver_opts: {exc}")
 
 
 class SingleFieldSolver:
@@ -663,31 +671,14 @@ class SingleFieldSolver:
             ),
         }
 
-        # Set background solver options
-        self.background_solver_opts = default_solver_opts[
-            "background"
-        ]._replace(**background_solver_opts)
-        invalid_opts = set(self.background_solver_opts._fields) - set(
-            default_solver_opts["background"]._fields
+        self.background_solver_opts = _merge_solver_opts(
+            default_solver_opts["background"], background_solver_opts,
+            "background",
         )
-        if invalid_opts:
-            raise ValueError(
-                "Invalid options found in background_solver_opts:"
-                f" {', '.join(invalid_opts)}"
-            )
-
-        # Set perturbation solver options
-        self.perturbation_solver_opts = default_solver_opts[
-            "perturbation"
-        ]._replace(**perturbation_solver_opts)
-        invalid_opts = set(self.perturbation_solver_opts._fields) - set(
-            default_solver_opts["perturbation"]._fields
+        self.perturbation_solver_opts = _merge_solver_opts(
+            default_solver_opts["perturbation"], perturbation_solver_opts,
+            "perturbation",
         )
-        if invalid_opts:
-            raise ValueError(
-                "Invalid options found in perturbation_solver_opts:"
-                f" {', '.join(invalid_opts)}"
-            )
 
     def run_background(self, params):
         r"""Integrate the inflationary background equations.
@@ -1050,6 +1041,20 @@ class SingleFieldSolver:
         """
         return 16 * epsilon_h
 
+    def _solve_pzeta(self, k, params):
+        """Background + perturbation solve returning the raw $P_\\zeta(k)$ array.
+
+        Shared core of :meth:`__call__` (which returns the array) and
+        :meth:`run` (which wraps it in a spline): evolve the background once,
+        optionally warn if the model is a CMB outlier, then integrate the
+        Mukhanov-Sasaki modes on the ``k`` grid.
+        """
+        params = jnp.array(params)
+        N, phi, dphidN, h = self.run_background(params)
+        if self.check_consistency:
+            _ = self.p_at_cmb(N, phi, dphidN, h, params)
+        return self.run_perturbations(k, N, phi, dphidN, h, params)
+
     def run(self, k, *params):
         r"""Compute $\mathcal{P}_\zeta(k)$ and return a callable interpolant.
 
@@ -1070,36 +1075,24 @@ class SingleFieldSolver:
         Returns
         -------
         callable
-            A function ``P_zeta_interpolation(k_new)`` that evaluates the
+            A function ``pzeta_interpolant(k_new)`` that evaluates the
             cubic-Hermite interpolant of $\mathcal{P}_\zeta$ at wavenumbers
             ``k_new`` within the original ``k`` range.
         """
-        params = jnp.array(params)
-        # Compute background evolution
-        N, phi, dphidN, h = self.run_background(params)
-        # Compute likelihood at CMB scale
-        # THIS IS NOT SUPPORTED YET
-        if self.check_consistency:
-            _ = self.p_at_cmb(N, phi, dphidN, h, params)
-        # Compute perturbations
-        P_zeta = self.run_perturbations(k, N, phi, dphidN, h, params)
-
+        P_zeta = self._solve_pzeta(k, params)
         coeff = backward_hermite_coefficients(k, P_zeta)
 
-        def P_zeta_interpolation(knew, *params):
-            return interpolation_inner(knew, k, coeff)
-            # return jnp.interp(knew, k, P_zeta, left=0.0, right=0.0)
-            # return LinearInterpolation(k, P_zeta).evaluate(knew)
+        def pzeta_interpolant(knew):
+            return CubicInterpolation(k, coeff).evaluate(knew)
 
-        return P_zeta_interpolation
+        return pzeta_interpolant
 
-    # NB: We can reuse this above to avoid doubled code
     def __call__(self, k, *params):
         r"""Compute and return the raw $\mathcal{P}_\zeta$ array at ``k``.
 
-        Identical to ``run`` but returns the power-spectrum values directly
-        instead of a callable interpolant.  Convenient for quickly plotting
-        or fitting the spectrum at a fixed parameter set.
+        Like ``run`` but returns the power-spectrum values directly instead of
+        a callable interpolant.  Convenient for quickly plotting or fitting the
+        spectrum at a fixed parameter set.
 
         Parameters
         ----------
@@ -1114,17 +1107,7 @@ class SingleFieldSolver:
             Dimensionful scalar power spectrum $\mathcal{P}_\zeta(k)$
             evaluated at each wavenumber in ``k``.
         """
-        params = jnp.array(params)
-        # Compute background evolution
-        N, phi, dphidN, h = self.run_background(params)
-        # Compute likelihood at CMB scale
-        # THIS IS NOT SUPPORTED YET
-        if self.check_consistency:
-            _ = self.p_at_cmb(N, phi, dphidN, h, params)
-        # Compute perturbations
-        P_zeta = self.run_perturbations(k, N, phi, dphidN, h, params)
-
-        return P_zeta
+        return self._solve_pzeta(k, params)
 
     def plot_evolution(self, k, params):
         r"""Plot the background evolution and scalar power spectrum.
