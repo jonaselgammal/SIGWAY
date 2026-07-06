@@ -36,7 +36,7 @@ sys.path.insert(0, TESTS)
 
 import _sigway_configs as C  # noqa: E402
 import _sigway_oracle as oracle  # noqa: E402
-from sigway.ms_solver import SingleFieldSolver  # noqa: E402
+from sigway.single_field import SingleFieldPerturbations  # noqa: E402
 
 OUTDIR = os.path.join(TESTS, "test_data", "reference")
 os.makedirs(OUTDIR, exist_ok=True)
@@ -190,12 +190,11 @@ def gen_usr():
     name = "usr_ms"
     cfg = C.USR_CONFIG
     p = cfg["params"]
-    solver = SingleFieldSolver(
+    solver = SingleFieldPerturbations(
         C.usr_potential,
+        ("a", "lam", "v", "nfac"),
         phi0=cfg["phi0"],
-        pi0=cfg["pi0"],
         N_CMB_to_end=cfg["N_CMB_to_end"],
-        k=jnp.array(cfg["k_solver"]),
     )
     t = C.usr_t_grid(nf=len(cfg["f"]))
     og = np.array(C.build_model(name)(jnp.array(cfg["f"]), *p))
@@ -215,7 +214,7 @@ def gen_usr():
     )
     mink = float(jnp.min(kvec) * jnp.min(uv))
     maxk = float(jnp.max(kvec) * jnp.max(uv))
-    pz_callable = solver.run(jnp.geomspace(mink, maxk, 100), *p)
+    pz_callable = solver.prepare(jnp.geomspace(mink, maxk, 100), *p)
 
     def Pz(q):
         return np.array(pz_callable(jnp.array(q)))

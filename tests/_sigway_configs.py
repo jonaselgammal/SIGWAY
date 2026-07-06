@@ -25,12 +25,9 @@ import jax.numpy as jnp
 from jax import jit
 
 from sigway.spectrum import OmegaGW
-from sigway.perturbations import (
-    AnalyticPerturbations,
-    SingleFieldPerturbations,
-)
+from sigway.perturbations import AnalyticPerturbations
 from sigway.kernels import RadiationKernel, InstantEMDKernel
-from sigway.ms_solver import SingleFieldSolver
+from sigway.single_field import SingleFieldPerturbations
 
 jax.config.update("jax_enable_x64", True)
 
@@ -341,14 +338,12 @@ def perturbations_for(name):
     """The ScalarPerturbations object for a config (analytic or MS)."""
     if name == "usr_ms":
         cfg = USR_CONFIG
-        solver = SingleFieldSolver(
+        return SingleFieldPerturbations(
             usr_potential,
+            ("a", "lam", "v", "nfac"),
             phi0=cfg["phi0"],
-            pi0=cfg["pi0"],
             N_CMB_to_end=cfg["N_CMB_to_end"],
-            k=jnp.array(cfg["k_solver"]),
         )
-        return SingleFieldPerturbations(solver, ("a", "lam", "v", "nfac"))
     if name == "emd_imd2rd":
         return AnalyticPerturbations(
             pzeta_heaviside2, ("As", "kmax"), nonsmooth_params=("kmax",)

@@ -17,7 +17,7 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
-from sigway.ms_solver import SingleFieldSolver
+from sigway.single_field import SingleFieldPerturbations
 from sigway.utils import efolds_from_wavenumber_si_units, H_from_wavenumber
 
 jax.config.update("jax_enable_x64", True)
@@ -28,12 +28,8 @@ def _V_quadratic(phi, m):
 
 
 def _quadratic_solver():
-    return SingleFieldSolver(
-        _V_quadratic,
-        phi0=16.0,
-        pi0=0.0,
-        N_CMB_to_end=55.0,
-        k=jnp.geomspace(1e-4, 1e-1, 40),
+    return SingleFieldPerturbations(
+        _V_quadratic, ("m",), phi0=16.0, N_CMB_to_end=55.0
     )
 
 

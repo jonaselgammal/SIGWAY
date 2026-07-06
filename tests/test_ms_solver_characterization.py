@@ -24,7 +24,7 @@ import pytest
 import jax
 import jax.numpy as jnp
 
-from sigway.ms_solver import SingleFieldSolver
+from sigway.single_field import SingleFieldPerturbations
 import _sigway_configs as C
 
 jax.config.update("jax_enable_x64", True)
@@ -63,19 +63,18 @@ def _V_quadratic(phi, m):
 def _build_configs():
     quad = dict(
         name="quadratic",
-        solver=SingleFieldSolver(
-            _V_quadratic, phi0=16.0, pi0=0.0, N_CMB_to_end=55.0,
-            k=jnp.geomspace(1e-4, 1e-1, 40),
+        solver=SingleFieldPerturbations(
+            _V_quadratic, ("m",), phi0=16.0, N_CMB_to_end=55.0,
         ),
         k=jnp.geomspace(1e-4, 1e-1, 40),
         params=(6e-6,),
     )
     usr = dict(
         name="usr",
-        solver=SingleFieldSolver(
-            C.usr_potential, phi0=C.USR_CONFIG["phi0"],
-            pi0=C.USR_CONFIG["pi0"], N_CMB_to_end=C.USR_CONFIG["N_CMB_to_end"],
-            k=jnp.array(C.USR_CONFIG["k_solver"]),
+        solver=SingleFieldPerturbations(
+            C.usr_potential, ("a", "lam", "v", "nfac"),
+            phi0=C.USR_CONFIG["phi0"],
+            N_CMB_to_end=C.USR_CONFIG["N_CMB_to_end"],
         ),
         k=jnp.array(C.USR_CONFIG["k_solver"]),
         params=tuple(C.USR_CONFIG["params"]),
@@ -91,7 +90,7 @@ def _compute(cfg):
 
     pzeta = np.asarray(s.run_perturbations(k, N, phi, y, h, p))
     call = np.asarray(s(k, *params))
-    run_nodes = np.asarray(s.run(k, *params)(k))
+    run_nodes = np.asarray(s.prepare(k, *params)(k))
 
     Nend = float(jnp.max(N))
     anchors = jnp.array([Nend - 10.0, Nend - 30.0])

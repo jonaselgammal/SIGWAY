@@ -173,6 +173,9 @@ trace/
 site/
 logo/
 
+# internal dev planning notes (not for the public repo)
+docs/dev/
+
 # keep brand/docs design assets tracked despite the global image ignores above
 !docs/assets/images/*.svg
 !docs/assets/images/*.png

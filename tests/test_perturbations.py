@@ -9,16 +9,14 @@ distort what they wrap, and that param_names is carried through.
 import numpy as np
 import jax
 import jax.numpy as jnp
-import pytest
 
 jax.config.update("jax_enable_x64", True)
 
-from sigway.ms_solver import SingleFieldSolver  # noqa: E402
 from sigway.perturbations import (  # noqa: E402
     ScalarPerturbations,
     AnalyticPerturbations,
-    SingleFieldPerturbations,
 )
+from sigway.single_field import SingleFieldPerturbations  # noqa: E402
 from _sigway_configs import pzeta_ln  # noqa: E402
 
 
@@ -33,34 +31,26 @@ def test_analytic_perturbations_wraps_callable():
     assert pert.param_names == names
 
 
-def _quadratic_solver():
+def _quadratic_pert():
     def V(phi, m):
         return 0.5 * m**2 * phi**2
 
-    return SingleFieldSolver(
-        V,
-        phi0=16.0,
-        pi0=0.0,
-        N_CMB_to_end=55.0,
-        k=jnp.geomspace(1e-4, 1e-1, 20),
-    )
+    return SingleFieldPerturbations(V, ("m",), phi0=16.0, N_CMB_to_end=55.0)
 
 
-def test_single_field_perturbations_matches_solver():
-    """SingleFieldPerturbations forwards __call__ and prepare to the solver."""
-    solver = _quadratic_solver()
-    pert = SingleFieldPerturbations(solver, param_names=("m",))
-    k = jnp.geomspace(1e-4, 1e-1, 20)
-    m = 6e-6
-    assert np.allclose(np.array(pert(k, m)), np.array(solver(k, m)))
-    kk = jnp.geomspace(2e-4, 5e-2, 10)
-    got = np.array(pert.prepare(k, m)(kk))
-    ref = np.array(solver.run(k, m)(kk))
-    assert np.allclose(got, ref)
+def test_single_field_perturbations_interface():
+    """The merged SingleFieldPerturbations is a non-jittable ScalarPerturbations
+    whose prepare() interpolant reproduces __call__ at the solve nodes."""
+    pert = _quadratic_pert()
+    assert isinstance(pert, ScalarPerturbations)
+    assert pert.jittable is False
     assert pert.param_names == ("m",)
 
+    k = jnp.geomspace(1e-4, 1e-1, 20)
+    m = 6e-6
+    pz = np.array(pert(k, m))
+    assert np.all(np.isfinite(pz)) and np.all(pz > 0)
 
-def test_single_field_rejects_non_solver():
-    """A bare callable must go through AnalyticPerturbations, not this class."""
-    with pytest.raises(ValueError, match="SingleFieldSolver"):
-        SingleFieldPerturbations(lambda k: k)
+    # prepare() solves once and returns a spline; at the nodes it matches __call__
+    nodes = np.array(pert.prepare(k, m)(k))
+    assert np.allclose(nodes, pz, rtol=1e-6)
