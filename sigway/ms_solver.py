@@ -242,12 +242,16 @@ def _solve_perturbations(
     # Bunch-Davies vacuum initial conditions for the mode function
     # at N_in (deep inside the horizon).  The normalisation sets the
     # standard quantum vacuum amplitude; the imaginary part starts at zero.
-    dPhiRin = 1.0  # $\mathrm{Re}\,\widetilde{\Delta\phi}$ at $N_{\rm in}$
-    dPhiRpRin = (
-        -1.0
-    )  # $\mathrm{d}(\mathrm{Re}\,\widetilde{\Delta\phi})/\mathrm{d}N$ at $N_{\rm in}$
-    dPhiIin = 0.0  # $\mathrm{Im}\,\widetilde{\Delta\phi}$ at $N_{\rm in}$
-    dPhiIpIin = 0.0  # $\mathrm{d}(\mathrm{Im}\,\widetilde{\Delta\phi})/\mathrm{d}N$ at $N_{\rm in}$
+    # $\mathrm{Re}\,\widetilde{\Delta\phi}$ at $N_{\rm in}$
+    dPhiRin = 1.0
+    # $\mathrm{d}(\mathrm{Re}\,\widetilde{\Delta\phi})/\mathrm{d}N$
+    # at $N_{\rm in}$
+    dPhiRpRin = -1.0
+    # $\mathrm{Im}\,\widetilde{\Delta\phi}$ at $N_{\rm in}$
+    dPhiIin = 0.0
+    # $\mathrm{d}(\mathrm{Im}\,\widetilde{\Delta\phi})/\mathrm{d}N$
+    # at $N_{\rm in}$
+    dPhiIpIin = 0.0
 
     def equations_perturbations(n, variables, args):
         r"""
@@ -438,7 +442,8 @@ def interpolation_inner(knew, k, coeff):
 
 
 class SingleFieldSolver:
-    r"""Compute the primordial scalar power spectrum $\mathcal{P}_\zeta(k)$ for a single inflaton field.
+    r"""Compute the primordial scalar power spectrum $\mathcal{P}_\zeta(k)$
+    for a single inflaton field.
 
     Given a potential $V(\phi, *\mathrm{params})$, this class:
 
@@ -453,8 +458,8 @@ class SingleFieldSolver:
 
     The potential is normalised internally as $U(\phi) = V(\phi)/V(\phi_0)$,
     so the overall energy scale $V_0 \equiv V(\phi_0)$ is restored at the end.
-    The rescaled background variables are $\pi \equiv \mathrm{d}\phi/\mathrm{d}N$
-    and $h = H / \sqrt{V_0/3}$.
+    The rescaled background variables are
+    $\pi \equiv \mathrm{d}\phi/\mathrm{d}N$ and $h = H / \sqrt{V_0/3}$.
 
     The primary entry points are:
 
@@ -478,7 +483,8 @@ class SingleFieldSolver:
         starts from the slow-roll attractor value derived from $V'(\phi_0)$.
         Default ``0.0``.
     N_CMB_to_end : float, optional
-        Number of e-folds from the CMB pivot scale $k_* \approx 0.05\,\mathrm{Mpc}^{-1}$
+        Number of e-folds from the CMB pivot scale
+        $k_* \approx 0.05\,\mathrm{Mpc}^{-1}$
         to the end of inflation, assuming instantaneous reheating.  This sets
         the absolute $k$-to-$N$ mapping.  Default ``65.0``.
     max_efolds : float, optional
@@ -588,7 +594,9 @@ class SingleFieldSolver:
 
         # Initial field conditions.
         self.phi0 = phi0  # $\phi_0$: starting field value
-        self.pi0 = pi0  # $\pi_0 = \mathrm{d}\phi/\mathrm{d}N|_0$ (stored; slow-roll attractor used in practice)
+        # $\pi_0 = \mathrm{d}\phi/\mathrm{d}N|_0$ (stored; the slow-roll
+        # attractor value is used in practice)
+        self.pi0 = pi0
 
         # Number of e-folds from the CMB pivot scale to the end of inflation.
         # Assuming instantaneous reheating fixes the absolute k-to-N mapping.
@@ -691,7 +699,8 @@ class SingleFieldSolver:
         Parameters
         ----------
         params : tuple
-            Extra parameters forwarded to the potential $V(\phi, *\mathrm{params})$.
+            Extra parameters forwarded to the potential
+            $V(\phi, *\mathrm{params})$.
 
         Returns
         -------
@@ -722,7 +731,8 @@ class SingleFieldSolver:
         return N, phi, y, h
 
     def run_perturbations(self, k, N, phi, y, h, params):
-        r"""Solve the Mukhanov-Sasaki equation for all modes and return $\mathcal{P}_\zeta(k)$.
+        r"""Solve the Mukhanov-Sasaki equation for all modes and return
+        $\mathcal{P}_\zeta(k)$.
 
         For each wavenumber $k$ the integration window is
         $[N_k - N_{\rm sub},\, N_k + N_{\rm sup}]$ where $N_k$ is the horizon
@@ -743,7 +753,8 @@ class SingleFieldSolver:
         h : array-like
             Rescaled Hubble parameter $h(N)$, same shape as ``N``.
         params : tuple
-            Extra parameters forwarded to the potential $V(\phi, *\mathrm{params})$.
+            Extra parameters forwarded to the potential
+            $V(\phi, *\mathrm{params})$.
 
         Returns
         -------
@@ -803,7 +814,8 @@ class SingleFieldSolver:
         return Pzetas
 
     def run_single_k(self, k, N, phi, y, h, params):
-        r"""Solve the Mukhanov-Sasaki equation for a single mode, retaining the full history.
+        r"""Solve the Mukhanov-Sasaki equation for a single mode, retaining
+        the full history.
 
         Identical to ``run_perturbations`` for one wavenumber, but the
         complete mode-function trajectory
@@ -825,7 +837,8 @@ class SingleFieldSolver:
         h : array-like
             Rescaled Hubble parameter $h(N)$.
         params : tuple
-            Extra parameters forwarded to the potential $V(\phi, *\mathrm{params})$.
+            Extra parameters forwarded to the potential
+            $V(\phi, *\mathrm{params})$.
 
         Returns
         -------
@@ -886,9 +899,11 @@ class SingleFieldSolver:
         return sol, lograt
 
     def p_at_cmb(self, N, phi, y, h, params):
-        r"""Evaluate the CMB log-likelihood at the pivot scale using slow-roll observables.
+        r"""Evaluate the CMB log-likelihood at the pivot scale using
+        slow-roll observables.
 
-        Interpolates the background to $N_{\rm CMB} = N_{\rm end} - N_{\rm CMB\_to\_end}$,
+        Interpolates the background to
+        $N_{\rm CMB} = N_{\rm end} - N_{\rm CMB\_to\_end}$,
         computes $[\ln(10^{10}\mathcal{P}_\zeta),\, n_s,\, r]$ in the
         slow-roll approximation, and returns their multivariate-Gaussian
         log-probability against the stored CMB priors.
@@ -904,7 +919,8 @@ class SingleFieldSolver:
         h : array-like
             Rescaled Hubble parameter $h(N)$.
         params : tuple
-            Extra parameters forwarded to the potential $V(\phi, *\mathrm{params})$.
+            Extra parameters forwarded to the potential
+            $V(\phi, *\mathrm{params})$.
 
         Returns
         -------
@@ -1058,7 +1074,8 @@ class SingleFieldSolver:
             Comoving wavenumber grid in $\mathrm{s}^{-1}$ at which to solve
             the Mukhanov-Sasaki equation.
         *params : float
-            Scalar potential parameters forwarded to $V(\phi, *\mathrm{params})$.
+            Scalar potential parameters forwarded to
+            $V(\phi, *\mathrm{params})$.
 
         Returns
         -------
@@ -1098,7 +1115,8 @@ class SingleFieldSolver:
         k : array-like
             Comoving wavenumber grid in $\mathrm{s}^{-1}$.
         *params : float
-            Scalar potential parameters forwarded to $V(\phi, *\mathrm{params})$.
+            Scalar potential parameters forwarded to
+            $V(\phi, *\mathrm{params})$.
 
         Returns
         -------
@@ -1140,7 +1158,8 @@ class SingleFieldSolver:
             Comoving wavenumber grid in $\mathrm{s}^{-1}$ for the full
             perturbation run.
         params : tuple
-            Extra parameters forwarded to the potential $V(\phi, *\mathrm{params})$.
+            Extra parameters forwarded to the potential
+            $V(\phi, *\mathrm{params})$.
 
         Returns
         -------

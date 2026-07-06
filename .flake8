@@ -1,5 +1,10 @@
 [flake8]
 max-line-length = 80
-extend-select = 
-exclude = 
+extend-select =
+exclude = brand,docs
 extend-ignore = E203
+# E402 ignored in scripts/: config calls (matplotlib.use, jax.config.update)
+# and sys.path setup must run between the imports.
+per-file-ignores =
+    scripts/generate_doc_figures.py:E402
+    scripts/generate_reference_spectra.py:E402
