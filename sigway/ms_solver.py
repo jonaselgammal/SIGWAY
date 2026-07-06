@@ -76,7 +76,7 @@ class ConsistencyError(Exception):
 
 
 @partial(jax.jit, static_argnums=(0, 1, 2, 4))
-def _run_background(Ud, max_efolds, phi0, pvalues, solver_opts):
+def _evolve_background(Ud, max_efolds, phi0, pvalues, solver_opts):
     r"""
     Integrate the inflationary background equations from $N=0$ to inflation end.
 
@@ -194,7 +194,7 @@ def _run_background(Ud, max_efolds, phi0, pvalues, solver_opts):
 
 
 @partial(jax.jit, static_argnums=(0, 1, 9))
-def _solve_perturbations(
+def _solve_mode(
     Ud, Udd, phiIn, yIn, hIn, nin, nout, lograt, pvalues, solver_opts
 ):
     r"""
@@ -327,14 +327,14 @@ def _solve_perturbations(
     return sol
 
 
-@partial(jax.jit, static_argnums=(0, 1, 10))
-def _run_perturbations(
-    Ud, Udd, phiIn, yIn, yOut, hIn, nin, nout, lograt, pvalues, solver_opts
+@partial(jax.jit, static_argnums=(0, 1, 9))
+def _mode_pzeta(
+    Ud, Udd, phiIn, yIn, hIn, nin, nout, lograt, pvalues, solver_opts
 ):
     r"""
     Integrate the Mukhanov-Sasaki equation and return $\mathcal{P}_\zeta/V_0$.
 
-    Calls `_solve_perturbations` and then assembles the dimensionless power
+    Calls `_solve_mode` and then assembles the dimensionless power
     spectrum (normalised by $V_0 = V(\phi_0)$) from the frozen mode amplitude
     at $N_{\rm out}$:
 
@@ -353,9 +353,6 @@ def _run_perturbations(
         Inflaton field value at $N_{\rm in}$.
     yIn : float
         Field velocity $\pi$ at $N_{\rm in}$.
-    yOut : float
-        Field velocity $\pi$ at $N_{\rm out}$ (used for the spectrum
-        amplitude; overwritten internally by the ODE output).
     hIn : float
         Rescaled Hubble parameter at $N_{\rm in}$.
     nin : float
@@ -376,7 +373,7 @@ def _run_perturbations(
         power spectrum divided by $V(\phi_0)$.
     """
     # Solve the perturbation equations
-    sol = _solve_perturbations(
+    sol = _solve_mode(
         Ud, Udd, phiIn, yIn, hIn, nin, nout, lograt, pvalues, solver_opts
     )
 
@@ -706,7 +703,7 @@ class SingleFieldSolver:
             Rescaled Hubble parameter $h(N) = H(N)/\sqrt{V(\phi_0)/3}$ at
             each saved step.
         """
-        bsol = _run_background(
+        bsol = _evolve_background(
             self.Ud,
             self.max_efolds,
             self.phi0,
@@ -776,14 +773,13 @@ class SingleFieldSolver:
 
         phiIn = CubicSpline(N, phi)(Nin)
         yIn = CubicSpline(N, y)(Nin)
-        yOut = CubicSpline(N, y)(Nout)
         hIn = CubicSpline(N, h)(Nin)
         lograt = jnp.log(Hk) + self.N_subhorizon
 
         # Compute the perturbations with vmap
         compute_Pzeta = jax.vmap(
-            _run_perturbations,
-            in_axes=(None, None, 0, 0, 0, 0, 0, 0, 0, None, None),
+            _mode_pzeta,
+            in_axes=(None, None, 0, 0, 0, 0, 0, 0, None, None),
             out_axes=0,
         )
         Pzetas = compute_Pzeta(
@@ -791,7 +787,6 @@ class SingleFieldSolver:
             self.Udd,
             phiIn,
             yIn,
-            yOut,
             hIn,
             Nin,
             Nout,
@@ -871,7 +866,7 @@ class SingleFieldSolver:
             saveat=SaveAt(steps=True)
         )
         # Compute the perturbations with vmap
-        sol = _solve_perturbations(
+        sol = _solve_mode(
             self.Ud,
             self.Udd,
             phiIn,
