@@ -75,6 +75,20 @@ class ConsistencyError(Exception):
     """
 
 
+def _background_rhs(phi, dphidN, h, ud):
+    r"""Background equations of motion in e-fold time.
+
+    Klein-Gordon for the inflaton plus the Friedmann equation for the rescaled
+    Hubble rate ``h``, with the field velocity ``dphidN`` = $\mathrm{d}\phi/
+    \mathrm{d}N$ and ``ud`` = $\partial U/\partial\phi$ at the current ``phi``.
+    Returns the e-fold derivatives ``(dphi/dN, d2phi/dN2, dh/dN)`` -- shared by
+    both the background-only and the joint background+perturbation systems.
+    """
+    d2phidN2 = -3.0 * (1.0 - dphidN**2 / 6.0) * dphidN - ud / h**2
+    dhdN = -(dphidN**2) / 2.0 * h
+    return dphidN, d2phidN2, dhdN
+
+
 @partial(jax.jit, static_argnums=(0, 1, 2, 4))
 def _evolve_background(Ud, max_efolds, phi0, pvalues, solver_opts):
     r"""
@@ -130,13 +144,10 @@ def _evolve_background(Ud, max_efolds, phi0, pvalues, solver_opts):
             Time derivatives $(\mathrm{d}\phi/\mathrm{d}N,\,
             \mathrm{d}\pi/\mathrm{d}N,\, \mathrm{d}h/\mathrm{d}N)$.
         """
-        x, y, h = variables
-        derx = y
-        dery = -3 * (1 - y**2 / 6) * y - Ud(x, *pvalues) / h**2
-        derh = -(y**2) / 2 * h
-        return jnp.array([derx, dery, derh])
+        phi, dphidN, h = variables
+        return jnp.array(_background_rhs(phi, dphidN, h, Ud(phi, *pvalues)))
 
-    def inflation_end(t, y, *args, **kwargs):
+    def inflation_end(t, state, *args, **kwargs):
         r"""
         Termination condition: inflation ends when $\epsilon_H \geq 1$.
 
@@ -144,7 +155,7 @@ def _evolve_background(Ud, max_efolds, phi0, pvalues, solver_opts):
         ----------
         t : float
             Current e-fold number (unused directly).
-        y : array-like
+        state : array-like
             Current state $(\phi, \pi, h)$.
         args : tuple
             Unused.
@@ -154,15 +165,15 @@ def _evolve_background(Ud, max_efolds, phi0, pvalues, solver_opts):
         bool
             ``True`` (stop) when $\pi^2 > 2$, i.e. $\epsilon_H > 1$.
         """
-        return y[1] ** 2 > 2
+        return state[1] ** 2 > 2
 
     # Initial conditions: slow-roll attractor values for pi and h at phi0.
-    # pi0 is set from the attractor relation dU/dphi = -3H pi (slow-roll).
-    # h0 is the corresponding Hubble rate from the Friedmann equation.
+    # The initial field velocity is fixed by the attractor dU/dphi = -3H pi
+    # (slow-roll); h0 is the corresponding Hubble rate from the Friedmann eq.
     Ud0 = Ud(phi0, *pvalues)
-    y0 = -(3 / Ud0) * (
+    dphidN0 = -(3 / Ud0) * (
         jnp.sqrt(1 + 2 / 3 * Ud0**2) - 1
-    )  # $\pi_0$: initial field velocity on the slow-roll attractor
+    )  # initial field velocity dphi/dN on the slow-roll attractor
     h0 = (
         1 / jnp.sqrt(6) * (jnp.sqrt(1 + 2 / 3 * Ud0**2) + 1) ** (1 / 2)
     )  # $h_0$: initial rescaled Hubble rate
@@ -183,7 +194,7 @@ def _evolve_background(Ud, max_efolds, phi0, pvalues, solver_opts):
         t0=0,
         t1=max_efolds,
         dt0=solver_opts.dt0,
-        y0=jnp.array([phi0, y0, h0]),
+        y0=jnp.array([phi0, dphidN0, h0]),
         stepsize_controller=stepsize_controller,
         saveat=saveat,
         max_steps=solver_opts.max_steps,
@@ -195,7 +206,7 @@ def _evolve_background(Ud, max_efolds, phi0, pvalues, solver_opts):
 
 @partial(jax.jit, static_argnums=(0, 1, 9))
 def _solve_mode(
-    Ud, Udd, phiIn, yIn, hIn, nin, nout, lograt, pvalues, solver_opts
+    Ud, Udd, phiIn, dphidN_in, hIn, nin, nout, lograt, pvalues, solver_opts
 ):
     r"""
     Integrate the Mukhanov-Sasaki equation for a single mode $k$.
@@ -215,7 +226,7 @@ def _solve_mode(
         potential.
     phiIn : float
         Inflaton field value $\phi$ at $N_{\rm in}$.
-    yIn : float
+    dphidN_in : float
         Field velocity $\pi = \mathrm{d}\phi/\mathrm{d}N$ at $N_{\rm in}$.
     hIn : float
         Rescaled Hubble parameter $h$ at $N_{\rm in}$.
@@ -275,31 +286,32 @@ def _solve_mode(
             $N$-derivatives of all seven state variables.
         """
         nin, lograt = args
-        x, y, h, dPhiR, dPhipR, dPhiI, dPhipI = variables
-        ud = Ud(x, *pvalues)
-        udd = Udd(x, *pvalues)
-        derx = y
-        dery = -3 * (1 - y**2 / 6) * y - ud / h**2
-        derh = -(y**2) / 2 * h
+        phi, dphidN, h, dPhiR, dPhipR, dPhiI, dPhipI = variables
+        ud = Ud(phi, *pvalues)
+        udd = Udd(phi, *pvalues)
+        # background part (shared with the background-only solver)
+        dphi_dN, d2phidN2, dhdN = _background_rhs(phi, dphidN, h, ud)
 
         derPhiR = dPhipR
         derPhipR = -(
-            (3 - y**2 / 2) * dPhipR
+            (3 - dphidN**2 / 2) * dPhipR
             + 2 * jnp.exp(lograt - n + nin) / h * dPhipI
-            + ((udd + 2 * ud * y) / h**2 + 3 * y**2 - y**4 / 2) * dPhiR
+            + ((udd + 2 * ud * dphidN) / h**2 + 3 * dphidN**2 - dphidN**4 / 2)
+            * dPhiR
             + 2 * jnp.exp(lograt - n + nin) / h * dPhiI
         )
 
         derPhiI = dPhipI
         derPhipI = -(
-            (3 - y**2 / 2) * dPhipI
+            (3 - dphidN**2 / 2) * dPhipI
             - 2 * jnp.exp(lograt - n + nin) / h * dPhipR
-            + ((udd + 2 * ud * y) / h**2 + 3 * y**2 - y**4 / 2) * dPhiI
+            + ((udd + 2 * ud * dphidN) / h**2 + 3 * dphidN**2 - dphidN**4 / 2)
+            * dPhiI
             - 2 * jnp.exp(lograt - n + nin) / h * dPhiR
         )
 
         return jnp.array(
-            [derx, dery, derh, derPhiR, derPhipR, derPhiI, derPhipI]
+            [dphi_dN, d2phidN2, dhdN, derPhiR, derPhipR, derPhiI, derPhipI]
         )
 
     # Setting up the differential equation solver
@@ -317,7 +329,7 @@ def _solve_mode(
         t0=nin,
         t1=nout,
         dt0=solver_opts.dt0,
-        y0=jnp.array([phiIn, yIn, hIn, dPhiRin, dPhiRpRin, dPhiIin, dPhiIpIin]),
+        y0=jnp.array([phiIn, dphidN_in, hIn, dPhiRin, dPhiRpRin, dPhiIin, dPhiIpIin]),
         stepsize_controller=stepsize_controller,
         args=(nin, lograt),
         saveat=saveat,
@@ -329,7 +341,7 @@ def _solve_mode(
 
 @partial(jax.jit, static_argnums=(0, 1, 9))
 def _mode_pzeta(
-    Ud, Udd, phiIn, yIn, hIn, nin, nout, lograt, pvalues, solver_opts
+    Ud, Udd, phiIn, dphidN_in, hIn, nin, nout, lograt, pvalues, solver_opts
 ):
     r"""
     Integrate the Mukhanov-Sasaki equation and return $\mathcal{P}_\zeta/V_0$.
@@ -351,7 +363,7 @@ def _mode_pzeta(
         potential.
     phiIn : float
         Inflaton field value at $N_{\rm in}$.
-    yIn : float
+    dphidN_in : float
         Field velocity $\pi$ at $N_{\rm in}$.
     hIn : float
         Rescaled Hubble parameter at $N_{\rm in}$.
@@ -374,15 +386,15 @@ def _mode_pzeta(
     """
     # Solve the perturbation equations
     sol = _solve_mode(
-        Ud, Udd, phiIn, yIn, hIn, nin, nout, lograt, pvalues, solver_opts
+        Ud, Udd, phiIn, dphidN_in, hIn, nin, nout, lograt, pvalues, solver_opts
     )
 
     # Read off the frozen mode amplitude at N_out.
     # deltaPhiR, deltaPhiI are the real and imaginary parts of the
-    # rescaled perturbation; yOut = pi at N_out gives epsilon_H = yOut^2/2.
+    # rescaled perturbation; dphidN_out = pi at N_out gives epsilon_H = dphidN_out^2/2.
     deltaPhiR = sol.ys[-1][3]
     deltaPhiI = sol.ys[-1][5]
-    yOut = sol.ys[-1][1]
+    dphidN_out = sol.ys[-1][1]
 
     # Assemble P_zeta / V0 from the mode amplitude.
     # The factor exp(2*lograt) = (k/aH)^2 at N_in converts the rescaled
@@ -392,7 +404,7 @@ def _mode_pzeta(
         / (4 * jnp.pi**2)
         * jnp.exp(2 * lograt)
         * (deltaPhiR**2 + deltaPhiI**2)
-        / yOut**2
+        / dphidN_out**2
     )
 
     return Pzeta_by_V0
@@ -696,7 +708,7 @@ class SingleFieldSolver:
             E-fold number at each saved integration step.
         phi : numpy.ndarray
             Inflaton field $\phi(N)$ at each saved step.
-        y : numpy.ndarray
+        dphidN : numpy.ndarray
             Field velocity $\pi(N) = \mathrm{d}\phi/\mathrm{d}N$ at each
             saved step.
         h : numpy.ndarray
@@ -714,11 +726,11 @@ class SingleFieldSolver:
         N = bsol.ts[bmask]
         bsolf = bsol.ys[bmask]
         phi = bsolf[:, 0]
-        y = bsolf[:, 1]
+        dphidN = bsolf[:, 1]
         h = bsolf[:, 2]
-        return N, phi, y, h
+        return N, phi, dphidN, h
 
-    def run_perturbations(self, k, N, phi, y, h, params):
+    def run_perturbations(self, k, N, phi, dphidN, h, params):
         r"""Solve the Mukhanov-Sasaki equation for all modes and return $\mathcal{P}_\zeta(k)$.
 
         For each wavenumber $k$ the integration window is
@@ -734,7 +746,7 @@ class SingleFieldSolver:
             E-fold array from ``run_background``.
         phi : array-like
             Inflaton field values $\phi(N)$, same shape as ``N``.
-        y : array-like
+        dphidN : array-like
             Field velocity $\pi(N) = \mathrm{d}\phi/\mathrm{d}N$, same shape
             as ``N``.
         h : array-like
@@ -772,7 +784,7 @@ class SingleFieldSolver:
         Nout = Nk + self.N_suphorizon
 
         phiIn = CubicSpline(N, phi)(Nin)
-        yIn = CubicSpline(N, y)(Nin)
+        dphidN_in = CubicSpline(N, dphidN)(Nin)
         hIn = CubicSpline(N, h)(Nin)
         lograt = jnp.log(Hk) + self.N_subhorizon
 
@@ -786,7 +798,7 @@ class SingleFieldSolver:
             self.Ud,
             self.Udd,
             phiIn,
-            yIn,
+            dphidN_in,
             hIn,
             Nin,
             Nout,
@@ -797,7 +809,7 @@ class SingleFieldSolver:
         Pzetas *= self.V(self.phi0, *params)
         return Pzetas
 
-    def run_single_k(self, k, N, phi, y, h, params):
+    def run_single_k(self, k, N, phi, dphidN, h, params):
         r"""Solve the Mukhanov-Sasaki equation for a single mode, retaining the full history.
 
         Identical to ``run_perturbations`` for one wavenumber, but the
@@ -815,7 +827,7 @@ class SingleFieldSolver:
             E-fold array from ``run_background``.
         phi : array-like
             Inflaton field values $\phi(N)$.
-        y : array-like
+        dphidN : array-like
             Field velocity $\pi(N) = \mathrm{d}\phi/\mathrm{d}N$.
         h : array-like
             Rescaled Hubble parameter $h(N)$.
@@ -856,8 +868,8 @@ class SingleFieldSolver:
         Nout = Nk + self.N_suphorizon
 
         phiIn = jnp.interp(Nin, N, phi)
-        yIn = jnp.interp(Nin, N, y)
-        # yOut = jnp.interp(Nout, N, y)
+        dphidN_in = jnp.interp(Nin, N, dphidN)
+        # dphidN_out = jnp.interp(Nout, N, dphidN)
         hIn = jnp.interp(Nin, N, h)
         lograt = jnp.log(Hk) + self.N_subhorizon
 
@@ -870,7 +882,7 @@ class SingleFieldSolver:
             self.Ud,
             self.Udd,
             phiIn,
-            yIn,
+            dphidN_in,
             hIn,
             Nin,
             Nout,
@@ -880,7 +892,7 @@ class SingleFieldSolver:
         )
         return sol, lograt
 
-    def p_at_cmb(self, N, phi, y, h, params):
+    def p_at_cmb(self, N, phi, dphidN, h, params):
         r"""Evaluate the CMB log-likelihood at the pivot scale using slow-roll observables.
 
         Interpolates the background to $N_{\rm CMB} = N_{\rm end} - N_{\rm CMB\_to\_end}$,
@@ -894,7 +906,7 @@ class SingleFieldSolver:
             E-fold array from ``run_background``.
         phi : array-like
             Inflaton field values $\phi(N)$.
-        y : array-like
+        dphidN : array-like
             Field velocity $\pi(N) = \mathrm{d}\phi/\mathrm{d}N$.
         h : array-like
             Rescaled Hubble parameter $h(N)$.
@@ -914,13 +926,13 @@ class SingleFieldSolver:
         N_cmb = Nend - self.N_CMB_to_end
 
         phi_cmb = jnp.interp(N_cmb, N, phi)
-        y_cmb = jnp.interp(N_cmb, N, y)
+        dphidN_cmb = jnp.interp(N_cmb, N, dphidN)
         h_cmb = jnp.interp(N_cmb, N, h)
-        epsilon_cmb = self.epsilon_h(y_cmb)
-        eta_cmb = self.eta_h(phi_cmb, y_cmb, h_cmb, params)
+        epsilon_cmb = self.epsilon_h(dphidN_cmb)
+        eta_cmb = self.eta_h(phi_cmb, dphidN_cmb, h_cmb, params)
         params_at_cmb = jnp.array(
             [
-                jnp.log(1e10 * self.pzeta_sr(y_cmb, h_cmb, params)),
+                jnp.log(1e10 * self.pzeta_sr(dphidN_cmb, h_cmb, params)),
                 self.n_s(epsilon_cmb, eta_cmb),
                 self.r(epsilon_cmb),
             ]
@@ -931,7 +943,7 @@ class SingleFieldSolver:
         )
         return p, params_at_cmb
 
-    def pzeta_sr(self, y, h, params):
+    def pzeta_sr(self, dphidN, h, params):
         r"""Slow-roll estimate of the scalar power spectrum $\mathcal{P}_\zeta$.
 
         Uses the standard slow-roll formula
@@ -942,10 +954,10 @@ class SingleFieldSolver:
 
         Parameters
         ----------
-        y : float or array-like
+        dphidN : float or array-like
             Field velocity $\pi = \mathrm{d}\phi/\mathrm{d}N$.
         h : float or array-like
-            Rescaled Hubble parameter $h$, same shape as ``y``.
+            Rescaled Hubble parameter $h$, same shape as ``dphidN``.
         params : tuple
             Extra parameters forwarded to $V(\phi, *\mathrm{params})$.
 
@@ -954,9 +966,9 @@ class SingleFieldSolver:
         float or numpy.ndarray
             Slow-roll approximation to $\mathcal{P}_\zeta$.
         """
-        return self.V(self.phi0, *params) * h**2 / (8 * jnp.pi**2 * y**2 / 2)
+        return self.V(self.phi0, *params) * h**2 / (8 * jnp.pi**2 * dphidN**2 / 2)
 
-    def epsilon_h(self, y):
+    def epsilon_h(self, dphidN):
         r"""First Hubble slow-roll parameter $\epsilon_H = \pi^2/2$.
 
         $\epsilon_H$ measures how quickly the Hubble rate is changing:
@@ -964,7 +976,7 @@ class SingleFieldSolver:
 
         Parameters
         ----------
-        y : float or array-like
+        dphidN : float or array-like
             Field velocity $\pi = \mathrm{d}\phi/\mathrm{d}N$.
 
         Returns
@@ -972,9 +984,9 @@ class SingleFieldSolver:
         float or numpy.ndarray
             $\epsilon_H = \pi^2/2$.
         """
-        return y**2 / 2
+        return dphidN**2 / 2
 
-    def eta_h(self, phi, y, h, params):
+    def eta_h(self, phi, dphidN, h, params):
         r"""Second Hubble slow-roll parameter $\eta_H$.
 
         $\eta_H$ characterises the curvature of the inflationary trajectory.
@@ -985,7 +997,7 @@ class SingleFieldSolver:
         ----------
         phi : float or array-like
             Inflaton field value $\phi$.
-        y : float or array-like
+        dphidN : float or array-like
             Field velocity $\pi = \mathrm{d}\phi/\mathrm{d}N$, same shape as
             ``phi``.
         h : float or array-like
@@ -998,8 +1010,8 @@ class SingleFieldSolver:
         float or numpy.ndarray
             $\eta_H = -6 + 2\epsilon_H - U'(\phi)\,\pi / (\epsilon_H\,h^2)$.
         """
-        eps = self.epsilon_h(y)
-        return -6 + 2 * eps - self.Ud(phi, *params) * y / (eps * h**2)
+        eps = self.epsilon_h(dphidN)
+        return -6 + 2 * eps - self.Ud(phi, *params) * dphidN / (eps * h**2)
 
     def n_s(self, epsilon_h, eta_h):
         r"""Scalar spectral index $n_s$ in the slow-roll approximation.
@@ -1064,13 +1076,13 @@ class SingleFieldSolver:
         """
         params = jnp.array(params)
         # Compute background evolution
-        N, phi, y, h = self.run_background(params)
+        N, phi, dphidN, h = self.run_background(params)
         # Compute likelihood at CMB scale
         # THIS IS NOT SUPPORTED YET
         if self.check_consistency:
-            _ = self.p_at_cmb(N, phi, y, h, params)
+            _ = self.p_at_cmb(N, phi, dphidN, h, params)
         # Compute perturbations
-        P_zeta = self.run_perturbations(k, N, phi, y, h, params)
+        P_zeta = self.run_perturbations(k, N, phi, dphidN, h, params)
 
         coeff = backward_hermite_coefficients(k, P_zeta)
 
@@ -1104,13 +1116,13 @@ class SingleFieldSolver:
         """
         params = jnp.array(params)
         # Compute background evolution
-        N, phi, y, h = self.run_background(params)
+        N, phi, dphidN, h = self.run_background(params)
         # Compute likelihood at CMB scale
         # THIS IS NOT SUPPORTED YET
         if self.check_consistency:
-            _ = self.p_at_cmb(N, phi, y, h, params)
+            _ = self.p_at_cmb(N, phi, dphidN, h, params)
         # Compute perturbations
-        P_zeta = self.run_perturbations(k, N, phi, y, h, params)
+        P_zeta = self.run_perturbations(k, N, phi, dphidN, h, params)
 
         return P_zeta
 
@@ -1144,13 +1156,13 @@ class SingleFieldSolver:
             Five-panel figure of the background and perturbation evolution.
         """
         # Compute background evolution
-        N, phi, y, h = self.run_background(params)
-        Pzeta_SR = self.pzeta_sr(y, h, params)
+        N, phi, dphidN, h = self.run_background(params)
+        Pzeta_SR = self.pzeta_sr(dphidN, h, params)
 
         Nend = jnp.max(N)
 
         # Compute perturbations
-        Pzeta = self.run_perturbations(k, N, phi, y, h, params)
+        Pzeta = self.run_perturbations(k, N, phi, dphidN, h, params)
         N_CMB = jnp.max(N) - self.N_CMB_to_end
         H_CMB = jnp.interp(N_CMB, N, h)
         Nk = efolds_from_wavenumber_si_units(
@@ -1158,9 +1170,9 @@ class SingleFieldSolver:
         )
 
         # Compute slow-roll parameters
-        epsilon = self.epsilon_h(y)
+        epsilon = self.epsilon_h(dphidN)
         eta = jnp.array(
-            [self.eta_h(i, j, k, params) for i, j, k in zip(phi, y, h)]
+            [self.eta_h(i, j, k, params) for i, j, k in zip(phi, dphidN, h)]
         )
 
         # Create subplots
@@ -1197,9 +1209,9 @@ class SingleFieldSolver:
         axs[2].set_ylabel("$x$")
         axs[2].legend(loc=3)
 
-        # Plot y=dphi/dN
-        axs[3].plot(N - Nend, -y, label="$-y$")
-        axs[3].set_ylabel("$-y$")
+        # Plot dphidN=dphi/dN
+        axs[3].plot(N - Nend, -dphidN, label="$-dphidN$")
+        axs[3].set_ylabel("$-dphidN$")
         axs[3].set_yscale("log")
         axs[3].legend(loc=3)
 
