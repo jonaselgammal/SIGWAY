@@ -413,7 +413,7 @@ SolverOptions.__doc__ = r"""Numerical settings for the adaptive ODE integrator (
     One instance is used for the background solver and a separate one for the
     perturbation solver; both are configured via the
     ``background_solver_opts`` and ``perturbation_solver_opts`` arguments of
-    [SingleFieldSolver][sigway.ms_solver.SingleFieldSolver].
+    [SingleFieldPerturbations][sigway.single_field.SingleFieldPerturbations].
 
     Attributes
     ----------
@@ -468,12 +468,14 @@ class SingleFieldPerturbations(ScalarPerturbations):
     The rescaled background variables are $\pi \equiv \mathrm{d}\phi/\mathrm{d}N$
     and $h = H / \sqrt{V_0/3}$.
 
-    The primary entry points are:
+    The result is exposed through the standard
+    [ScalarPerturbations][sigway.perturbations.ScalarPerturbations] interface:
 
-    - ``solver.run(k, *params)`` — runs the full calculation and returns a
-      callable interpolant $\mathcal{P}_\zeta(k_{\rm new})$.
-    - ``solver(k, *params)`` — same calculation, returns the raw
-      $\mathcal{P}_\zeta$ array instead.
+    - ``pert(k, *params)`` — runs the full calculation and returns the raw
+      $\mathcal{P}_\zeta$ array.
+    - ``pert.prepare(kint, *params)`` — solves once on ``kint`` and returns a
+      callable interpolant $\mathcal{P}_\zeta(k_{\rm new})$; this is the seam
+      the GW integrator uses to avoid re-solving the ODE per grid point.
 
     Parameters
     ----------
@@ -481,78 +483,55 @@ class SingleFieldPerturbations(ScalarPerturbations):
         Inflaton potential $V(\phi, *\mathrm{params})$.  Must be written in
         JAX (using ``jax.numpy``) so that automatic differentiation can
         compute $V'$ and $V''$ internally.
+    param_names : tuple of str, optional
+        Ordered names of the free potential parameters (the ``*params``
+        forwarded to ``V``), e.g. ``("a", "lam", "v", "nfac")``.  Default ``()``.
     phi0 : float, optional
-        Initial field value $\phi_0$.  Also the normalisation point:
-        $U(\phi) \equiv V(\phi)/V(\phi_0)$.  Default ``0.0``.
-    pi0 : float, optional
-        Initial field velocity $\pi_0 = \mathrm{d}\phi/\mathrm{d}N\big|_0$.
-        Currently stored for reference; the background integration always
-        starts from the slow-roll attractor value derived from $V'(\phi_0)$.
+        Initial field value $\phi_0$, and the normalisation point
+        $U(\phi) \equiv V(\phi)/V(\phi_0)$.  The background always starts from
+        the slow-roll attractor velocity derived from $V'(\phi_0)$.
         Default ``0.0``.
     N_CMB_to_end : float, optional
-        Number of e-folds from the CMB pivot scale $k_* \approx 0.05\,\mathrm{Mpc}^{-1}$
-        to the end of inflation, assuming instantaneous reheating.  This sets
-        the absolute $k$-to-$N$ mapping.  Default ``65.0``.
+        Number of e-folds from the CMB pivot ($k_* \approx 0.05\,\mathrm{Mpc}^{-1}$)
+        to the end of inflation, assuming instantaneous reheating; sets the
+        absolute $k$-to-$N$ mapping.  Default ``65.0``.
     max_efolds : float, optional
         Hard upper limit on the number of e-folds integrated for the
-        background.  Increase this for models with very long inflationary
-        phases.  Default ``1000.0``.
+        background.  Default ``1000.0``.
+    N_subhorizon : float, optional
+        E-folds before horizon crossing ($k = aH$) at which Bunch-Davies vacuum
+        initial conditions are imposed.  Default ``3.0``.
+    N_suphorizon : float, optional
+        E-folds after horizon crossing at which the frozen mode amplitude is
+        read off.  Default ``7.0``.
     cmb_check : bool, optional
-        If ``True``, emit a ``UserWarning`` whenever the model's slow-roll CMB
+        If ``True``, emit a ``UserWarning`` when the model's slow-roll CMB
         observables $[\ln(10^{10}\mathcal{P}_\zeta),\, n_s,\, r]$ sit
         $\geq 3\sigma$ from the Planck 2018 prior (``constants.CMB_means`` /
         ``CMB_cov``), reporting the distance.  Purely diagnostic -- it never
         affects the returned spectrum.  Default ``False``.
-    N_subhorizon : float, optional
-        Number of e-folds before horizon crossing ($k = aH$) at which to
-        impose Bunch-Davies vacuum initial conditions on each mode.
-        Default ``3.0``.
-    N_suphorizon : float, optional
-        Number of e-folds after horizon crossing at which to read off the
-        frozen super-horizon mode amplitude.  Default ``7.0``.
-    k : array-like or callable or None, optional
-        Wavenumber grid (in $\mathrm{s}^{-1}$) onto which the spectrum is
-        interpolated when ``upsample=True``.  Ignored otherwise.
-        Default ``None``.
-    upsample : bool, optional
-        If ``True``, evaluate the returned power spectrum on the dense ``k``
-        grid rather than on the wavenumbers passed to ``run``.  Requires
-        ``k`` to be set.  Default ``False``.
-    background_solver_opts : dict, optional
+    background_solver_opts, perturbation_solver_opts : dict, optional
         Override any field of the default
-        [SolverOptions][sigway.ms_solver.SolverOptions] for the background
-        integrator.  Defaults: ``rtol=1e-8``, ``atol=1e-8``,
-        ``max_steps=100000``, ``dt0=1e-3``, ``saveat=SaveAt(steps=True)``.
-        Tighten tolerances if the background trajectory looks noisy for
-        potentials with sharp features.
-    perturbation_solver_opts : dict, optional
-        Override any field of the default
-        [SolverOptions][sigway.ms_solver.SolverOptions] for the perturbation
-        integrator.  Defaults: ``rtol=1e-6``, ``atol=1e-6``,
-        ``max_steps=1000000``, ``dt0=1e-3``, ``saveat=SaveAt(t1=True)``
-        (only the final mode amplitude is stored, saving memory).  Setting
-        ``saveat=SaveAt(steps=True)`` retains the full mode history but is
-        considerably slower.
-    error_on_fail : bool, optional
-        If ``True``, raise an error when the perturbation integrator fails
-        for a given mode.  Default ``False``.
+        [SolverOptions][sigway.single_field.SolverOptions] for the background /
+        perturbation ODE integrator.  Background defaults: ``rtol=atol=1e-8``,
+        ``max_steps=100000``, ``dt0=1e-3``, ``saveat=SaveAt(steps=True)``;
+        perturbation defaults: ``rtol=atol=1e-6``, ``max_steps=1000000``,
+        ``dt0=1e-3``, ``saveat=SaveAt(t1=True)``.
 
     Examples
     --------
     Ultra-slow-roll model with a near-inflection-point potential:
 
     >>> import jax.numpy as jnp
-    >>> from sigway.ms_solver import SingleFieldSolver
+    >>> from sigway.single_field import SingleFieldPerturbations
     >>> def V(phi, a, lam, v, nfac):
     ...     b = (1+nfac)*(1 - a**2/3 + a**2/3*(9/(2*a**2)-1)**(2/3))
     ...     x = phi/v
     ...     return lam*v**4/12 * x**2*(6-4*a*x+3*x**2)/(1+b*x**2)**2
-    >>> solver = SingleFieldSolver(V, phi0=3.0, pi0=0.0, N_CMB_to_end=58.0,
-    ...                            k=jnp.geomspace(1e-5, 10.0, 200))
-
-    After construction, call ``solver.run(k, *params)`` to obtain a callable
-    interpolant of $\mathcal{P}_\zeta(k)$, or ``solver(k, *params)`` for the
-    raw spectrum array.
+    >>> pert = SingleFieldPerturbations(V, ("a", "lam", "v", "nfac"),
+    ...                                 phi0=3.0, N_CMB_to_end=58.0)
+    >>> omega = pert.prepare(jnp.geomspace(1e-5, 10.0, 200),
+    ...                      0.71, 1.47e-6, 0.197, 1.87e-5)
     """
 
     # The Mukhanov-Sasaki solve uses SciPy/diffrax ODE routines, so it cannot
