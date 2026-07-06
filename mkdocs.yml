@@ -85,5 +85,5 @@ nav:
       - Kernels: api/kernels.md
       - Integrators: api/integrators.md
       - Binned: api/binned_pzeta.md
-      - MS solver: api/ms_solver.md
+      - Single-field solver: api/single_field.md
       - Utilities: api/utils.md

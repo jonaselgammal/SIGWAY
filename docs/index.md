@@ -28,9 +28,9 @@ The whole pipeline is written in [JAX](https://jax.readthedocs.io): every model 
   $\mathcal{P}_\zeta(k)$ — a log-normal peak, broken power law, flat-with-cutoff,
   oscillatory multifield template, … — and get $\Omega_{\mathrm{GW}}(f)$. Cheap and
   fully differentiable.
-- **Inflation from first principles.** `SingleFieldPerturbations` wraps the
-  Mukhanov–Sasaki solver (`SingleFieldSolver`): give it an inflaton potential
-  $V(\phi)$ and it integrates the background **and** the mode equations to produce
+- **Inflation from first principles.** `SingleFieldPerturbations` is a
+  Mukhanov–Sasaki solver: give it an inflaton potential $V(\phi)$ and it
+  integrates the background **and** the mode equations to produce
   $\mathcal{P}_\zeta$ — e.g. ultra-slow-roll quasi-inflection-point models.
 - **Binned / model-independent reconstruction.** `Binned_P_zeta` represents
   $\mathcal{P}_\zeta$ as free amplitudes in $k$-bins — a template-free way to fit or

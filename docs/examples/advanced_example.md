@@ -15,10 +15,8 @@ import jax.numpy as jnp
 
 from sigway.spectrum import OmegaGW
 from sigway.kernels import RadiationKernel, InstantEMDKernel
-from sigway.perturbations import (
-    AnalyticPerturbations, SingleFieldPerturbations,
-)
-from sigway.ms_solver import SingleFieldSolver
+from sigway.perturbations import AnalyticPerturbations
+from sigway.single_field import SingleFieldPerturbations
 from sigway.binned_pzeta import Binned_P_zeta
 ```
 
@@ -41,10 +39,10 @@ src = AnalyticPerturbations(
 
 ### (b) Single-field inflation — solve Mukhanov–Sasaki
 
-`SingleFieldPerturbations` wraps a `SingleFieldSolver`, which integrates the background
-**and** the mode equations for a potential $V(\phi)$ and returns $\mathcal{P}_\zeta$. The
-potential below has a quasi-inflection point (ultra-slow-roll) tuned to stay CMB-consistent
-while enhancing small-scale power.
+`SingleFieldPerturbations` integrates the background **and** the mode equations for a
+potential $V(\phi)$ and returns $\mathcal{P}_\zeta$. The potential below has a
+quasi-inflection point (ultra-slow-roll) tuned to stay CMB-consistent while enhancing
+small-scale power.
 
 ```python
 def usr_potential(phi, a, lam, v, nfac):
@@ -52,11 +50,10 @@ def usr_potential(phi, a, lam, v, nfac):
     x = phi / v
     return lam * v**4/12 * x**2 * (6 - 4*a*x + 3*x**2) / (1 + b*x**2)**2
 
-solver = SingleFieldSolver(
-    usr_potential, phi0=3.0, pi0=0.0, N_CMB_to_end=58.0,
-    k=jnp.geomspace(1e-5, 10.0, 200),
+usr_pert = SingleFieldPerturbations(
+    usr_potential, ("a", "lam", "v", "nfac"),
+    phi0=3.0, N_CMB_to_end=58.0,
 )
-usr_pert = SingleFieldPerturbations(solver, ("a", "lam", "v", "nfac"))
 usr_params = (0.71224, 1.47312e-06, 0.19689, 1.86902e-05)
 
 k = jnp.geomspace(1e-5, 10.0, 200)
