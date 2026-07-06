@@ -42,7 +42,6 @@ from diffrax import (
     Event,
     SaveAt,
     backward_hermite_coefficients,
-    # LinearInterpolation,
     CubicInterpolation,
 )
 
@@ -409,10 +408,10 @@ def _mode_pzeta(
     return Pzeta_by_V0
 
 
-class SolverOptions(
-    namedtuple("SolverOptions", ["rtol", "atol", "max_steps", "dt0", "saveat"])
-):
-    r"""Numerical settings for the adaptive ODE integrator (diffrax Tsit5).
+SolverOptions = namedtuple(
+    "SolverOptions", ["rtol", "atol", "max_steps", "dt0", "saveat"]
+)
+SolverOptions.__doc__ = r"""Numerical settings for the adaptive ODE integrator (diffrax Tsit5).
 
     One instance is used for the background solver and a separate one for the
     perturbation solver; both are configured via the
@@ -575,18 +574,11 @@ class SingleFieldSolver:
         perturbation_solver_opts={},
         error_on_fail=False,
     ):
-        # Wrap V with jit so gradients and vmapped calls compile efficiently.
+        # Wrap V with jit so gradients and vmapped calls compile efficiently
+        # (skip if V is already a JVPTracer, e.g. under an outer jit/grad).
         if not isinstance(V, jax.interpreters.ad.JVPTracer):
-            # try:
             V = jax.jit(V)
-            self.V = V
-
-            # except:
-            #     raise ValueError(
-            #         "The potential V must be a jax-compatible function."
-            #     )
-        else:
-            self.V = V
+        self.V = V
 
         # Rescaled potential U(phi) = V(phi)/V(phi0) and its first two
         # derivatives, computed by automatic differentiation.
@@ -1210,39 +1202,3 @@ class SingleFieldSolver:
         ax.set_xlabel(labels[1])
         ax.set_ylabel(labels[0])
         return fig
-
-
-if __name__ == "__main__":
-
-    def V(phi, a, lam, v, nfac):
-        # a, lam, v, nfac = p
-        b = (1 + nfac) * (
-            1 - a**2 / 3 + a**2 / 3 * (9 / (2 * a**2) - 1) ** (2 / 3)
-        )
-        f = phi / v
-        return (
-            lam
-            * v**4
-            / 12
-            * f**2
-            * (6 - 4 * a * f + 3 * f**2)
-            / (1 + b * f**2) ** 2
-        )
-
-    phi0 = 3.0
-    pi0 = 0.0
-    pvalues = jnp.array(
-        [
-            1 / jnp.sqrt(2) * (1 + 0.56 * 1e-2),
-            1.86e-6 * (1 - 0.12),
-            0.19669 * (1 + 1e-3),
-            0.3 * 6.23 * 1e-5,
-        ]
-    )
-
-    robbiesmodel = SingleFieldSolver(V, phi0=phi0, pi0=pi0)
-    k = jnp.geomspace(1e-5, 10 ** (-2.0), 100)
-
-    fig = robbiesmodel.plot_evolution(k, pvalues)
-    plt.show()
-    # plt.savefig("test.pdf")
