@@ -5,6 +5,10 @@ repo_url: https://github.com/jonaselgammal/SIGWAY
 repo_name: jonaselgammal/SIGWAY
 edit_uri: edit/main/docs/
 
+# Internal, git-ignored planning notes live in docs/dev/; never publish them.
+exclude_docs: |
+  dev/
+
 theme:
   name: material
   logo: assets/images/mark.svg

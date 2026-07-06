@@ -106,7 +106,7 @@ class ScalarPerturbations:
         The gravitational-wave integrator calls this once before evaluating
         $\mathcal{P}_\zeta$ on its dense $(k u,\, k v)$ grid.  The default
         implementation simply closes over ``__call__`` with the given ``params``.
-        [SingleFieldPerturbations][sigway.perturbations.SingleFieldPerturbations]
+        [SingleFieldPerturbations][sigway.single_field.SingleFieldPerturbations]
         overrides this to solve the Mukhanov-Sasaki equation once on ``kint`` and
         return a fast spline interpolant, avoiding a full ODE solve at every grid
         point.

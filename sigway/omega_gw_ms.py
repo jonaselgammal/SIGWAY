@@ -76,7 +76,7 @@ class OmegaGWms(OmegaGWjax):
     ):
         warnings.warn(
             "OmegaGWms is deprecated; use sigway.spectrum.OmegaGW with "
-            "sigway.perturbations.SingleFieldPerturbations and a "
+            "sigway.single_field.SingleFieldPerturbations and a "
             "sigway.kernels Kernel.",
             DeprecationWarning,
             stacklevel=2,
