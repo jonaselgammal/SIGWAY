@@ -25,25 +25,19 @@ import jax
 from jax import jit
 from jax import numpy as jnp
 
+# Local
+from sigway.constants import CMB_scale_k
+
+# enable 64-bit precision for JAX computations
 jax.config.update("jax_enable_x64", True)
-
-# Conversion factors
-c = 299792458.0  # Speed of light in m/s
-M_p = 2.176e-8  # Planck mass in kg (in natural units this would be 1)
-Mpc_to_m = 3.086e22  # 1 Mpc in meters
-CMB_scale = 0.05  # Mpc^-1
-CMB_scale_k = CMB_scale / Mpc_to_m * c  # Mpc^-1 to s^-1
-
-# Some cosmological parameters
-Omega_radiation_h2_today = 4.2e-5  # Omega_r h^2 today
-SM_CG_factor = 0.39  # CG factor for the SM
 
 
 # Utils to convert between e-folds, wavenumber, and Hubble parameter
 @jit
 def wavenumber_from_efolds_si_units(N, H, N_CMB, H_CMB):
     r"""
-    Convert inflationary e-folds $N$ and Hubble rate $H$ to comoving wavenumber $k$.
+    Convert inflationary e-folds $N$ and Hubble rate $H$ to comoving
+    wavenumber $k$.
 
     Uses the horizon-crossing relation
     $k = k_\mathrm{CMB}\,(H/H_\mathrm{CMB})\,e^{N - N_\mathrm{CMB}}$,
@@ -76,11 +70,13 @@ def wavenumber_from_efolds_si_units(N, H, N_CMB, H_CMB):
 @jit
 def efolds_from_wavenumber_si_units(k, H, N_CMB, H_CMB):
     r"""
-    Convert comoving wavenumber $k$ and Hubble rate $H$ to inflationary e-folds $N$.
+    Convert comoving wavenumber $k$ and Hubble rate $H$ to inflationary
+    e-folds $N$.
 
     Inverts the horizon-crossing relation used in
     `wavenumber_from_efolds_si_units`:
-    $N = N_\mathrm{CMB} + \ln\!\left[k\,/\,(k_\mathrm{CMB}\,H/H_\mathrm{CMB})\right]$.
+    $N = N_\mathrm{CMB} +
+    \ln\!\left[k\,/\,(k_\mathrm{CMB}\,H/H_\mathrm{CMB})\right]$.
 
     Parameters
     ----------
@@ -155,7 +151,8 @@ def simpson_uniform_even(f, h):
     Composite Simpson 1/3 rule for an even number of intervals.
 
     Applies the standard composite Simpson formula
-    $\int f\,\mathrm{d}x \approx \tfrac{h}{3}(f_0 + 4f_1 + 2f_2 + \cdots + 4f_{N-1} + f_N)$
+    $\int f\,\mathrm{d}x \approx
+    \tfrac{h}{3}(f_0 + 4f_1 + 2f_2 + \cdots + 4f_{N-1} + f_N)$
     assuming $N$ (number of intervals) is even.  Called internally by
     `simpson_uniform`; use that function directly unless you need fine-grained
     control.

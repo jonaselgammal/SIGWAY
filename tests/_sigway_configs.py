@@ -19,6 +19,8 @@ identical closed form:
 The names and underscore prefix keep pytest from collecting this file as tests.
 """
 
+from typing import Any
+
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -286,7 +288,7 @@ def usr_potential(phi, a, lam, v, nfac):
     )
 
 
-USR_CONFIG = dict(
+USR_CONFIG: dict[str, Any] = dict(
     phi0=3.0,
     pi0=0.0,
     N_CMB_to_end=58.0,

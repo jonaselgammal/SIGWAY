@@ -15,6 +15,8 @@ from jax import jit
 from jax import config
 import matplotlib.pyplot as plt
 
+from sigway.constants import Omega_radiation_h2_today, SM_CG_factor
+
 config.update("jax_enable_x64", True)
 
 
@@ -229,7 +231,8 @@ class Binned_P_zeta:
         norm="RD",
         backend="jax",
     ):
-        r"""Load precomputed bilinear coefficients and set up the spectral model.
+        r"""Load precomputed bilinear coefficients and set up the spectral
+        model.
 
         Parameters
         ----------
@@ -272,10 +275,6 @@ class Binned_P_zeta:
             ``path_to_C`` is ``None``), or if the path given by ``path_to_C``
             does not exist.
         """
-        # Constants
-        OMEGA_R = 4.2 * 10 ** (-5)
-        CG = 0.39
-
         # Load the coefficients
         if path_to_C is None:
             try:
@@ -316,7 +315,7 @@ class Binned_P_zeta:
 
         self.parameterLabels = list(self.parameterNames.values())
         if norm == "RD":
-            self.norm = lambda k: CG * OMEGA_R
+            self.norm = lambda k: SM_CG_factor * Omega_radiation_h2_today
         if norm == "CT":
             self.norm = lambda k: 1.0
         elif callable(norm):
@@ -358,7 +357,8 @@ class Binned_P_zeta:
         r"""Partial derivative of $\Omega_{\mathrm{GW}}$ with respect to one
         bin $\log_{10}$-amplitude.
 
-        Evaluates $\partial \Omega_{\mathrm{GW}} / \partial \theta_{\text{index}}$
+        Evaluates
+        $\partial \Omega_{\mathrm{GW}} / \partial \theta_{\text{index}}$
         analytically.  Because $A_i = 10^{\theta_i}$ and the spectrum is
         bilinear in the $A_i$, the chain rule gives
         $2 \ln(10)\, A_i \sum_j C_{mij}\, A_j$; the factor $\ln(10) A_i$ is
@@ -412,7 +412,8 @@ class Binned_P_zeta:
         return tuple(self.parameterNames)
 
     def __call__(self, f, *theta):
-        r"""Evaluate $\Omega_{\mathrm{GW}}(f)$ from the bin $\log_{10}$-amplitudes.
+        r"""Evaluate $\Omega_{\mathrm{GW}}(f)$ from the bin
+        $\log_{10}$-amplitudes.
 
         Thin wrapper around ``template`` that satisfies the standard callable
         interface shared with [OmegaGW][sigway.spectrum.OmegaGW]: pass a

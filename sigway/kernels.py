@@ -42,7 +42,11 @@ from jax import jit, lax
 from jax.scipy.special import sici
 
 # Local
-from sigway.utils import SM_CG_factor, Omega_radiation_h2_today
+from sigway.constants import (
+    SM_CG_factor,
+    Omega_radiation_h2_today,
+    RD_SOUND_SPEED,
+)
 
 jax.config.update("jax_enable_x64", True)
 
@@ -58,9 +62,11 @@ NORM_PRESETS = {
 
 @jit
 def get_u(t, s):
-    r"""Recover the momentum ratio $u = p/k$ from the integration variables $(t, s)$.
+    r"""Recover the momentum ratio $u = p/k$ from the integration
+    variables $(t, s)$.
 
-    Inverts the change of variables in Eq. (4.19) of [arXiv:2501.11320](https://arxiv.org/abs/2501.11320):
+    Inverts the change of variables in Eq. (4.19) of
+    [arXiv:2501.11320](https://arxiv.org/abs/2501.11320):
     $u = (t + s + 1) / 2$, where $t = u + v - 1$ and $s = u - v$.
 
     Parameters
@@ -82,9 +88,11 @@ def get_u(t, s):
 
 @jit
 def get_v(t, s):
-    r"""Recover the momentum ratio $v = q/k$ from the integration variables $(t, s)$.
+    r"""Recover the momentum ratio $v = q/k$ from the integration
+    variables $(t, s)$.
 
-    Inverts the change of variables in Eq. (4.19) of [arXiv:2501.11320](https://arxiv.org/abs/2501.11320):
+    Inverts the change of variables in Eq. (4.19) of
+    [arXiv:2501.11320](https://arxiv.org/abs/2501.11320):
     $v = (t - s + 1) / 2$, where $t = u + v - 1$ and $s = u - v$.
 
     Parameters
@@ -106,7 +114,8 @@ def get_v(t, s):
 
 @jit
 def polynomial(t, s):
-    r"""Geometric projection factor for tensor-mode sourcing (Eq. (4.20) of 2501.11320).
+    r"""Geometric projection factor for tensor-mode sourcing
+    (Eq. (4.20) of 2501.11320).
 
     This $k$-independent factor arises from contracting the GW polarisation
     tensor with the stress-energy quadrupole of the two scalar modes.  In terms
@@ -141,12 +150,15 @@ def polynomial(t, s):
 # Radiation domination all the way
 @jit
 def I_sq_RD_uv(t, s, k):
-    r"""Oscillation-averaged radiation-domination kernel, expressed in $(u, v)$ variables.
+    r"""Oscillation-averaged radiation-domination kernel, expressed in
+    $(u, v)$ variables.
 
     Evaluates $\overline{I^2_{\rm RD}}$ for a universe that remains in
     radiation domination from horizon re-entry to the present, using the
-    $(u, v)$ form of Eqs. (4.21)–(4.22) of [arXiv:2501.11320](https://arxiv.org/abs/2501.11320).  Because the Green's
-    function for a radiation-dominated universe has been oscillation-averaged
+    $(u, v)$ form of Eqs. (4.21)–(4.22) of
+    [arXiv:2501.11320](https://arxiv.org/abs/2501.11320).  Because the
+    Green's function for a radiation-dominated universe has been
+    oscillation-averaged
     analytically, the result is independent of $k$.
 
     This function is kept for cross-validation against `I_sq_RD`; at large $t$
@@ -172,15 +184,16 @@ def I_sq_RD_uv(t, s, k):
     u = get_u(t, s)
     v = get_v(t, s)
 
-    # An auxiliary factor used in several places below
+    # An auxiliary factor used in several places below (3 = 1/c_s^2, w = 1/3)
     factor = u**2 + v**2 - 3.0
 
-    # These are the terms in 4.22 of [arXiv:2501.11320](https://arxiv.org/abs/2501.11320)
+    # These are the terms in eq. 4.22 of arXiv:2501.11320
     IA = 3.0 * factor / (4.0 * u**3 * v**3)
     IB = -4.0 * u * v + factor * jnp.log(
         jnp.abs((3.0 - (u + v) ** 2) / ((3.0 - (u - v) ** 2)))
     )
-    IC = jnp.pi * factor * jnp.heaviside(u + v - jnp.sqrt(3), 1)
+    # resonance onset u + v > 1/c_s = sqrt(3)
+    IC = jnp.pi * factor * jnp.heaviside(u + v - 1.0 / RD_SOUND_SPEED, 1)
 
     return IA**2 * (IB**2 + IC**2) / 2.0
 
@@ -188,11 +201,14 @@ def I_sq_RD_uv(t, s, k):
 # Radiation domination all the way
 @jit
 def I_sq_RD(t, s, k):
-    r"""Oscillation-averaged radiation-domination kernel, expressed in $(t, s)$ variables.
+    r"""Oscillation-averaged radiation-domination kernel, expressed in
+    $(t, s)$ variables.
 
     Evaluates $\overline{I^2_{\rm RD}}$ for a universe in pure radiation
     domination, using the numerically stable $(t, s)$ form of
-    Eqs. (4.21)–(4.22) of [arXiv:2501.11320](https://arxiv.org/abs/2501.11320).  The kernel contains two pieces: a
+    Eqs. (4.21)–(4.22) of
+    [arXiv:2501.11320](https://arxiv.org/abs/2501.11320).
+    The kernel contains two pieces: a
     smooth logarithmic term (present for all $t > 0$) and a $\pi^2$ resonant
     piece that switches on when $u + v > \sqrt{3}$, i.e. when
     $1 + t > \sqrt{3}$, via a Heaviside step.  The result is independent of
@@ -219,14 +235,15 @@ def I_sq_RD(t, s, k):
         and $s$.
     """
 
-    # This is IA**2 from eq. 4.21 of [arXiv:2501.11320](https://arxiv.org/abs/2501.11320)
+    # This is IA**2 from eq. 4.21 of arXiv:2501.11320
     prefactor = (
         288.0
         * (-5.0 + s**2 + t * (2.0 + t)) ** 2
         / ((1.0 - s + t) ** 6 * (1.0 + s + t) ** 6)
     )
 
-    # This is IB**2 from eq. 4.21 of [arXiv:2501.11320](https://arxiv.org/abs/2501.11320)
+    # This is IB**2 from eq. 4.21 of arXiv:2501.11320
+    # (the 3 in 3 - s**2 below is 1/c_s^2 for w = 1/3)
     log_term = (
         (-1.0 + s - t) * (1.0 + s + t)
         + (
@@ -236,11 +253,11 @@ def I_sq_RD(t, s, k):
         / 2.0
     ) ** 2
 
-    # This is IC**2 from eq. 4.21 of [arXiv:2501.11320](https://arxiv.org/abs/2501.11320)
+    # This is IC**2 from eq. 4.21 of arXiv:2501.11320
     heaviside_term = (
         jnp.pi**2
         * (-5.0 + s**2 + t * (2.0 + t)) ** 2
-        * jnp.heaviside(1.0 - jnp.sqrt(3.0) + t, 1)
+        * jnp.heaviside(1.0 - 1.0 / RD_SOUND_SPEED + t, 1)  # t > 1/c_s - 1
     ) / 4.0
 
     return prefactor * (log_term + heaviside_term)
@@ -289,7 +306,8 @@ def I_sq_MD(t, s, k):
 
 @jit
 def _sici_precomp(x):
-    r"""Auxiliary combination $4\,\mathrm{Ci}(x/2)^2 + (\pi - 2\,\mathrm{Si}(x/2))^2$.
+    r"""Auxiliary combination
+    $4\,\mathrm{Ci}(x/2)^2 + (\pi - 2\,\mathrm{Si}(x/2))^2$.
 
     This combination of cosine and sine integrals arises from integrating the
     matter-era Green's function up to the EMD → RD transition time, and appears
@@ -318,9 +336,11 @@ def _d_sici_precomp(x):
 
     $$\frac{d}{dx}\!\left[4\,\mathrm{Ci}^2\!\left(\tfrac{x}{2}\right)
         + \left(\pi - 2\,\mathrm{Si}\!\left(\tfrac{x}{2}\right)\right)^2\right]
-    = \frac{8\cos\!\left(\tfrac{x}{2}\right)\mathrm{Ci}\!\left(\tfrac{x}{2}\right)
+    = \frac{8\cos\!\left(\tfrac{x}{2}\right)
+            \mathrm{Ci}\!\left(\tfrac{x}{2}\right)
             - 4\sin\!\left(\tfrac{x}{2}\right)
-              \!\left(\pi - 2\,\mathrm{Si}\!\left(\tfrac{x}{2}\right)\right)}{x}.$$
+            \!\left(\pi - 2\,\mathrm{Si}\!\left(\tfrac{x}{2}\right)\right)}
+        {x}.$$
 
     This is used in the analytic gradient of the large-$V$ kernel with respect
     to $\eta_R$ (via the chain rule on $x_R = k\,\eta_R$).
@@ -414,7 +434,8 @@ def I_sq_IRD_LV(t, s, k, kmax, etaR):
 
 @jit
 def d_I_sq_IRD_LV(index, t, s, k, kmax, etaR):
-    r"""Analytic gradient of the smooth EMD → RD kernel with respect to $k_{\max}$ or $\eta_R$.
+    r"""Analytic gradient of the smooth EMD → RD kernel with respect to
+    $k_{\max}$ or $\eta_R$.
 
     Returns the partial derivative of `I_sq_IRD_LV` selected by *index*.
     The gradient with respect to $k_{\max}$ is identically zero inside the
@@ -507,7 +528,8 @@ def I_sq_IRD_res(t, s, k, kmax, etaR):
 
 @jit
 def d_I_sq_IRD_res(index, t, s, k, kmax, etaR):
-    r"""Analytic gradient of the resonant EMD → RD kernel with respect to $k_{\max}$ or $\eta_R$.
+    r"""Analytic gradient of the resonant EMD → RD kernel with respect to
+    $k_{\max}$ or $\eta_R$.
 
     Returns the partial derivative of `I_sq_IRD_res` selected by *index*.
     The gradient with respect to $k_{\max}$ is identically zero (the resonant
@@ -687,7 +709,8 @@ class Kernel:
         raise NotImplementedError
 
     def overline_Isq_resonant(self, t, s, k, *kparams):
-        r"""Oscillation-averaged kernel $\overline{I^2_{\rm res}}$ at the resonant slice.
+        r"""Oscillation-averaged kernel $\overline{I^2_{\rm res}}$ at the
+        resonant slice.
 
         Called at each fixed $t$ value listed in `resonant_t`, where the
         integrand has a narrow peak that cannot be resolved by the smooth
@@ -722,21 +745,25 @@ class Kernel:
 
 
 class RadiationKernel(Kernel):
-    r"""Kernel for scalar-induced GWs produced entirely during radiation domination.
+    r"""Kernel for scalar-induced GWs produced entirely during radiation
+    domination.
 
     Use this kernel when all relevant scalar modes re-enter the Hubble radius
     during a standard radiation-dominated era.  The underlying physics is that
     the GW source is active from Hubble re-entry until the present; once
     averaged over many oscillation cycles, the kernel takes the closed-form
-    expression in Eqs. (4.21)–(4.22) of [arXiv:2501.11320](https://arxiv.org/abs/2501.11320).  It has two pieces: a
+    expression in Eqs. (4.21)–(4.22) of
+    [arXiv:2501.11320](https://arxiv.org/abs/2501.11320).
+    It has two pieces: a
     smooth logarithmic term that is always present, and a $\pi^2$ resonant
     contribution that switches on when $u + v > \sqrt{3}$ (equivalently
     $t > \sqrt{3} - 1$), where the combined scalar momentum equals the sound
     horizon.
 
-    Because the Green's function for radiation domination is oscillation-averaged
-    analytically, the kernel is independent of $k$ — all $k$ values share the
-    same $(t, s)$ integrand.  There is no separate resonant slice to integrate.
+    Because the Green's function for radiation domination is
+    oscillation-averaged analytically, the kernel is independent of $k$ —
+    all $k$ values share the same $(t, s)$ integrand.  There is no separate
+    resonant slice to integrate.
 
     The default normalisation preset ``'RD'`` gives $\Omega_{\rm GW} h^2$ in
     terms of today's radiation density via $c_g\,\Omega_{r,0}/12$.
@@ -750,7 +777,7 @@ class RadiationKernel(Kernel):
     Examples
     --------
     >>> from sigway.kernels import RadiationKernel
-    >>> from sigway.spectrum import OmegaGW   # kernel passed as the 2nd argument
+    >>> from sigway.spectrum import OmegaGW   # kernel is the 2nd argument
     """
 
     k_dependent = False
@@ -784,7 +811,8 @@ class RadiationKernel(Kernel):
 
 
 class InstantEMDKernel(Kernel):
-    r"""Kernel for scalar-induced GWs produced in an early matter era with a sudden reheating.
+    r"""Kernel for scalar-induced GWs produced in an early matter era with
+    a sudden reheating.
 
     Models a universe that starts in an early matter-dominated (EMD) era
     (e.g. dominated by a pressureless oscillating field) and transitions
@@ -836,11 +864,12 @@ class InstantEMDKernel(Kernel):
 
     k_dependent = True
     param_names = ("etaR",)
-    resonant_t = (3.0**0.5 - 1.0,)
+    resonant_t = (1.0 / RD_SOUND_SPEED - 1.0,)  # t = 1/c_s - 1 (sound-horizon)
     _default_norm = "CT"
 
     def overline_Isq(self, t, s, k, etaR):
-        r"""Evaluate the smooth (large-$V$) EMD → RD kernel $\overline{I^2_{\rm IRD,LV}}$.
+        r"""Evaluate the smooth (large-$V$) EMD → RD kernel
+        $\overline{I^2_{\rm IRD,LV}}$.
 
         Delegates to `I_sq_IRD_LV` with ``kmax=0.0``: domain clipping based
         on $k_{\max}$ is applied externally by the integrator.
@@ -864,7 +893,8 @@ class InstantEMDKernel(Kernel):
         return I_sq_IRD_LV(t, s, k, 0.0, etaR)
 
     def overline_Isq_resonant(self, t, s, k, etaR):
-        r"""Evaluate the resonant EMD → RD kernel $\overline{I^2_{\rm IRD,res}}$.
+        r"""Evaluate the resonant EMD → RD kernel
+        $\overline{I^2_{\rm IRD,res}}$.
 
         Called at the resonant slice $t = \sqrt{3} - 1$ declared in
         `resonant_t`, where $u + v = \sqrt{3} = 1/c_s$.  Delegates to

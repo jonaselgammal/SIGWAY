@@ -11,7 +11,8 @@ kernel and perturbation modules free of quadrature details.
 concrete strategy: it applies composite Simpson quadrature on user-supplied
 $s$ and $t$ grids.
 
-See [Theory: the $(s,t)$ reparameterisation](../theory/index.md#in-the-codes-st-variables)
+See [Theory: the $(s,t)$
+reparameterisation](../theory/index.md#in-the-codes-st-variables)
 for how $(s,t)$ relate to the physical momenta and the form of the integrand.
 """
 
@@ -66,7 +67,8 @@ _simpson_constant = jit(_simpson_constant_impl, static_argnums=(0, 1))
 def _simpson_transitioning_impl(
     pzeta, kern_smooth, kern_res, t_res, s, t, kvec, theta_pz, theta_k
 ):
-    r"""2-D integral for the smooth kernel plus a 1-D resonant slice at fixed $t$.
+    r"""2-D integral for the smooth kernel plus a 1-D resonant slice at
+    fixed $t$.
 
     Used when a kernel (e.g. the constant equation-of-state kernel near a
     resonant feature) contributes a delta-like peak at a specific value
@@ -134,7 +136,8 @@ class Integrator:
 
 
 class SimpsonIntegrator(Integrator):
-    r"""2-D Simpson quadrature over the $(s, t)$ momentum plane (Gaussian spectrum).
+    r"""2-D Simpson quadrature over the $(s, t)$ momentum plane (Gaussian
+    spectrum).
 
     This integrator performs the double integral that enters the scalar-induced
     gravitational-wave energy density.  It assumes a **Gaussian** primordial
@@ -227,14 +230,17 @@ class SimpsonIntegrator(Integrator):
         return jnp.asarray(s), t
 
     def integrate(self, kernel, pzeta, kvec, theta_pz, theta_k):
-        r"""Evaluate the un-normalised tensor power spectrum $\overline{I^2}(k)$.
+        r"""Evaluate the un-normalised tensor power spectrum
+        $\overline{I^2}(k)$.
 
-        Resolves the $s$ and $t$ grids (evaluating them as callables if needed),
+        Resolves the $s$ and $t$ grids (evaluating them as callables if
+        needed),
         then performs the composite Simpson quadrature over both momentum
         variables and returns the result on the requested wavenumber grid.
 
         For analytic primordial spectra (``pzeta.jittable = True``) the
-        quadrature is compiled at first call and reused for subsequent calls with
+        quadrature is compiled at first call and reused for subsequent calls
+        with
         different physical parameters at the same array shapes, making parameter
         scans fast.  Spectra computed by the Mukhanov-Sasaki solver run the same
         quadrature without compilation.
