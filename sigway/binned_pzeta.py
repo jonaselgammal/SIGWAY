@@ -231,7 +231,8 @@ class Binned_P_zeta:
         norm="RD",
         backend="jax",
     ):
-        r"""Load precomputed bilinear coefficients and set up the spectral model.
+        r"""Load precomputed bilinear coefficients and set up the spectral
+        model.
 
         Parameters
         ----------
@@ -356,7 +357,8 @@ class Binned_P_zeta:
         r"""Partial derivative of $\Omega_{\mathrm{GW}}$ with respect to one
         bin $\log_{10}$-amplitude.
 
-        Evaluates $\partial \Omega_{\mathrm{GW}} / \partial \theta_{\text{index}}$
+        Evaluates
+        $\partial \Omega_{\mathrm{GW}} / \partial \theta_{\text{index}}$
         analytically.  Because $A_i = 10^{\theta_i}$ and the spectrum is
         bilinear in the $A_i$, the chain rule gives
         $2 \ln(10)\, A_i \sum_j C_{mij}\, A_j$; the factor $\ln(10) A_i$ is
@@ -410,7 +412,8 @@ class Binned_P_zeta:
         return tuple(self.parameterNames)
 
     def __call__(self, f, *theta):
-        r"""Evaluate $\Omega_{\mathrm{GW}}(f)$ from the bin $\log_{10}$-amplitudes.
+        r"""Evaluate $\Omega_{\mathrm{GW}}(f)$ from the bin
+        $\log_{10}$-amplitudes.
 
         Thin wrapper around ``template`` that satisfies the standard callable
         interface shared with [OmegaGW][sigway.spectrum.OmegaGW]: pass a

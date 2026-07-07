@@ -9,11 +9,20 @@ will be removed in a future release.
 
 import warnings
 
-from sigway.single_field import (  # noqa: F401  (re-exported for back-compat)
+from sigway.single_field import (
     SingleFieldPerturbations,
     SolverOptions,
     ConsistencyError,
 )
+
+# Re-exported for back-compat; listing them in __all__ marks the imports as
+# intentional (so flake8 does not flag them as unused -- no noqa needed).
+__all__ = [
+    "SingleFieldPerturbations",
+    "SolverOptions",
+    "ConsistencyError",
+    "SingleFieldSolver",
+]
 
 warnings.warn(
     "sigway.ms_solver is deprecated; import from sigway.single_field instead "

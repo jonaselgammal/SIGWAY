@@ -21,7 +21,8 @@ from sigway.integrators import SimpsonIntegrator
 
 
 class OmegaGW:
-    r"""Scalar-induced gravitational-wave energy-density spectrum $\Omega_{\mathrm{GW}}(f)$.
+    r"""Scalar-induced gravitational-wave energy-density spectrum
+    $\Omega_{\mathrm{GW}}(f)$.
 
     Combines a primordial scalar power spectrum $\mathcal{P}_\zeta(k)$, a
     transfer kernel and a numerical integrator. The induced tensor power
@@ -29,7 +30,8 @@ class OmegaGW:
     $s\in[0,1]$ and $t\in[0,\infty)$,
 
     $$
-    \overline{\mathcal{P}_h(k)} = \int_0^{\infty}\!\mathrm{d}t \int_0^{1}\!\mathrm{d}s\;
+    \overline{\mathcal{P}_h(k)} =
+    \int_0^{\infty}\!\mathrm{d}t \int_0^{1}\!\mathrm{d}s\;
     \mathcal{N}(t,s)\,\overline{I^2(u,v,k\eta)}\;
     \mathcal{P}_\zeta(u k)\,\mathcal{P}_\zeta(v k),
     $$
@@ -108,7 +110,8 @@ class OmegaGW:
     ...     return 10.0**logAs * jnp.exp(-0.5*(jnp.log(k/10**logks)/0.3)**2)
     >>> model = OmegaGW(AnalyticPerturbations(pz, ("logAs", "logks")),
     ...                 RadiationKernel(),
-    ...                 s=jnp.linspace(0, 1, 10), t=jnp.geomspace(1e-4, 1e3, 800))
+    ...                 s=jnp.linspace(0, 1, 10),
+    ...                 t=jnp.geomspace(1e-4, 1e3, 800))
     >>> omega = model(jnp.geomspace(1e-5, 1e-1, 200), -2.0, -2.0)
     """
 
@@ -220,7 +223,8 @@ class OmegaGW:
         return self.kernel.norm(kvec_full) * res
 
     def jacobian(self, f, theta, fd_params=None):
-        r"""Compute the parameter derivatives $\partial\Omega_{\mathrm{GW}}(f_i)/\partial\theta_j$.
+        r"""Compute the parameter derivatives
+        $\partial\Omega_{\mathrm{GW}}(f_i)/\partial\theta_j$.
 
         Returns the Jacobian matrix needed to build a Fisher information matrix
         for forecasting parameter constraints.  For a detector with noise power
@@ -244,7 +248,8 @@ class OmegaGW:
         use ``fd_params`` to override.
 
         Not available when the perturbation spectrum requires a full numerical
-        mode-function integration (e.g. [SingleFieldPerturbations][sigway.single_field.SingleFieldPerturbations]).
+        mode-function integration (e.g.
+        [SingleFieldPerturbations][sigway.single_field.SingleFieldPerturbations]).
 
         Parameters
         ----------
@@ -270,7 +275,8 @@ class OmegaGW:
         ------
         ValueError
             If the perturbation object does not support automatic
-            differentiation (e.g. [SingleFieldPerturbations][sigway.single_field.SingleFieldPerturbations]).
+            differentiation (e.g.
+            [SingleFieldPerturbations][sigway.single_field.SingleFieldPerturbations]).
         """
         if not getattr(self.perturbations, "jittable", True):
             raise ValueError(

@@ -10,8 +10,9 @@ $\mathcal{P}_\zeta(k) = k^3 |\zeta_k|^2 / (2\pi^2)$.
 
 [SingleFieldPerturbations][sigway.single_field.SingleFieldPerturbations] exposes
 the result through the standard
-[ScalarPerturbations][sigway.perturbations.ScalarPerturbations] interface, so the
-GW integrator treats a numerically-solved spectrum exactly like an analytic one.
+[ScalarPerturbations][sigway.perturbations.ScalarPerturbations] interface, so
+the GW integrator treats a numerically-solved spectrum exactly like an
+analytic one.
 
 Public API
 ----------
@@ -25,7 +26,6 @@ __all__ = ["SingleFieldPerturbations", "SolverOptions", "ConsistencyError"]
 # Global
 import jax
 from jax import numpy as jnp
-from jax import jit
 
 import warnings
 from collections import namedtuple
@@ -248,12 +248,12 @@ def _solve_mode(
     # Bunch-Davies vacuum initial conditions for the mode function
     # at N_in (deep inside the horizon).  The normalisation sets the
     # standard quantum vacuum amplitude; the imaginary part starts at zero.
-    dPhiRin = 1.0  # $\mathrm{Re}\,\widetilde{\Delta\phi}$ at $N_{\rm in}$
-    dPhiRpRin = (
-        -1.0
-    )  # $\mathrm{d}(\mathrm{Re}\,\widetilde{\Delta\phi})/\mathrm{d}N$ at $N_{\rm in}$
-    dPhiIin = 0.0  # $\mathrm{Im}\,\widetilde{\Delta\phi}$ at $N_{\rm in}$
-    dPhiIpIin = 0.0  # $\mathrm{d}(\mathrm{Im}\,\widetilde{\Delta\phi})/\mathrm{d}N$ at $N_{\rm in}$
+    # (dPhiR, dPhiR', dPhiI, dPhiI') = the Re/Im parts of the rescaled mode
+    # perturbation and their d/dN, at N_in.
+    dPhiRin = 1.0
+    dPhiRpRin = -1.0
+    dPhiIin = 0.0
+    dPhiIpIin = 0.0
 
     def equations_perturbations(n, variables, args):
         r"""
@@ -324,7 +324,9 @@ def _solve_mode(
         t0=nin,
         t1=nout,
         dt0=solver_opts.dt0,
-        y0=jnp.array([phiIn, dphidN_in, hIn, dPhiRin, dPhiRpRin, dPhiIin, dPhiIpIin]),
+        y0=jnp.array(
+            [phiIn, dphidN_in, hIn, dPhiRin, dPhiRpRin, dPhiIin, dPhiIpIin]
+        ),
         stepsize_controller=stepsize_controller,
         args=(nin, lograt),
         saveat=saveat,
@@ -386,7 +388,8 @@ def _mode_pzeta(
 
     # Read off the frozen mode amplitude at N_out.
     # deltaPhiR, deltaPhiI are the real and imaginary parts of the
-    # rescaled perturbation; dphidN_out = pi at N_out gives epsilon_H = dphidN_out^2/2.
+    # rescaled perturbation; dphidN_out = pi at N_out gives
+    # epsilon_H = dphidN_out^2/2.
     deltaPhiR = sol.ys[-1][3]
     deltaPhiI = sol.ys[-1][5]
     dphidN_out = sol.ys[-1][1]
@@ -408,7 +411,8 @@ def _mode_pzeta(
 SolverOptions = namedtuple(
     "SolverOptions", ["rtol", "atol", "max_steps", "dt0", "saveat"]
 )
-SolverOptions.__doc__ = r"""Numerical settings for the adaptive ODE integrator (diffrax Tsit5).
+SolverOptions.__doc__ = r"""Numerical settings for the adaptive ODE
+integrator (diffrax Tsit5).
 
     One instance is used for the background solver and a separate one for the
     perturbation solver; both are configured via the
@@ -450,7 +454,8 @@ def _merge_solver_opts(defaults, overrides, label):
 
 
 class SingleFieldPerturbations(ScalarPerturbations):
-    r"""Primordial scalar power spectrum $\mathcal{P}_\zeta(k)$ from single-field inflation.
+    r"""Primordial scalar power spectrum $\mathcal{P}_\zeta(k)$ from
+    single-field inflation.
 
     Given a potential $V(\phi, *\mathrm{params})$, this class:
 
@@ -465,8 +470,8 @@ class SingleFieldPerturbations(ScalarPerturbations):
 
     The potential is normalised internally as $U(\phi) = V(\phi)/V(\phi_0)$,
     so the overall energy scale $V_0 \equiv V(\phi_0)$ is restored at the end.
-    The rescaled background variables are $\pi \equiv \mathrm{d}\phi/\mathrm{d}N$
-    and $h = H / \sqrt{V_0/3}$.
+    The rescaled background variables are
+    $\pi \equiv \mathrm{d}\phi/\mathrm{d}N$ and $h = H / \sqrt{V_0/3}$.
 
     The result is exposed through the standard
     [ScalarPerturbations][sigway.perturbations.ScalarPerturbations] interface:
@@ -485,14 +490,16 @@ class SingleFieldPerturbations(ScalarPerturbations):
         compute $V'$ and $V''$ internally.
     param_names : tuple of str, optional
         Ordered names of the free potential parameters (the ``*params``
-        forwarded to ``V``), e.g. ``("a", "lam", "v", "nfac")``.  Default ``()``.
+        forwarded to ``V``), e.g. ``("a", "lam", "v", "nfac")``.
+        Default ``()``.
     phi0 : float, optional
         Initial field value $\phi_0$, and the normalisation point
         $U(\phi) \equiv V(\phi)/V(\phi_0)$.  The background always starts from
         the slow-roll attractor velocity derived from $V'(\phi_0)$.
         Default ``0.0``.
     N_CMB_to_end : float, optional
-        Number of e-folds from the CMB pivot ($k_* \approx 0.05\,\mathrm{Mpc}^{-1}$)
+        Number of e-folds from the CMB pivot
+        ($k_* \approx 0.05\,\mathrm{Mpc}^{-1}$)
         to the end of inflation, assuming instantaneous reheating; sets the
         absolute $k$-to-$N$ mapping.  Default ``65.0``.
     max_efolds : float, optional
@@ -580,7 +587,8 @@ class SingleFieldPerturbations(ScalarPerturbations):
         self.N_suphorizon = N_suphorizon
 
         # Optional (default-off) diagnostic: warn if the model's slow-roll CMB
-        # observables sit >=3 sigma from the Planck prior.  Never affects output.
+        # observables sit >=3 sigma from the Planck prior.  Never affects
+        # output.
         self.cmb_check = cmb_check
 
         # Default solver options
@@ -621,7 +629,8 @@ class SingleFieldPerturbations(ScalarPerturbations):
         Parameters
         ----------
         params : tuple
-            Extra parameters forwarded to the potential $V(\phi, *\mathrm{params})$.
+            Extra parameters forwarded to the potential
+            $V(\phi, *\mathrm{params})$.
 
         Returns
         -------
@@ -688,7 +697,8 @@ class SingleFieldPerturbations(ScalarPerturbations):
         return Nin, Nout, lograt, phiIn, dphidN_in, hIn
 
     def run_perturbations(self, k, N, phi, dphidN, h, params):
-        r"""Solve the Mukhanov-Sasaki equation for all modes and return $\mathcal{P}_\zeta(k)$.
+        r"""Mukhanov-Sasaki solve for all modes, returning
+        $\mathcal{P}_\zeta(k)$.
 
         For each wavenumber $k$ the integration window is
         $[N_k - N_{\rm sub},\, N_k + N_{\rm sup}]$ where $N_k$ is the horizon
@@ -709,7 +719,8 @@ class SingleFieldPerturbations(ScalarPerturbations):
         h : array-like
             Rescaled Hubble parameter $h(N)$, same shape as ``N``.
         params : tuple
-            Extra parameters forwarded to the potential $V(\phi, *\mathrm{params})$.
+            Extra parameters forwarded to the potential
+            $V(\phi, *\mathrm{params})$.
 
         Returns
         -------
@@ -771,7 +782,8 @@ class SingleFieldPerturbations(ScalarPerturbations):
         return sol, lograt
 
     def cmb_observables(self, N, phi, dphidN, h, params):
-        r"""Slow-roll CMB observables $[\ln(10^{10}\mathcal{P}_\zeta),\, n_s,\, r]$.
+        r"""Slow-roll CMB observables
+        $[\ln(10^{10}\mathcal{P}_\zeta),\, n_s,\, r]$.
 
         Interpolates the background to the CMB pivot
         $N_{\rm CMB} = N_{\rm end} - N_{\rm CMB\_to\_end}$ and evaluates the
@@ -834,7 +846,11 @@ class SingleFieldPerturbations(ScalarPerturbations):
         float or numpy.ndarray
             Slow-roll approximation to $\mathcal{P}_\zeta$.
         """
-        return self.V(self.phi0, *params) * h**2 / (8 * jnp.pi**2 * dphidN**2 / 2)
+        return (
+            self.V(self.phi0, *params)
+            * h**2
+            / (8 * jnp.pi**2 * dphidN**2 / 2)
+        )
 
     def epsilon_h(self, dphidN):
         r"""First Hubble slow-roll parameter $\epsilon_H = \pi^2/2$.
@@ -919,7 +935,8 @@ class SingleFieldPerturbations(ScalarPerturbations):
         return 16 * epsilon_h
 
     def _solve_pzeta(self, k, params):
-        """Background + perturbation solve returning the raw $P_\\zeta(k)$ array.
+        """Background + perturbation solve returning the raw
+        $P_\\zeta(k)$ array.
 
         Shared core of :meth:`__call__` (which returns the array) and
         :meth:`run` (which wraps it in a spline): evolve the background once,
@@ -933,7 +950,8 @@ class SingleFieldPerturbations(ScalarPerturbations):
         return self.run_perturbations(k, N, phi, dphidN, h, params)
 
     def prepare(self, kint, *params):
-        r"""Solve the Mukhanov-Sasaki system once on ``kint``; return a $P_\zeta(k)$ spline.
+        r"""Solve the Mukhanov-Sasaki system once on ``kint``; return a
+        $P_\zeta(k)$ spline.
 
         Implements the
         [ScalarPerturbations][sigway.perturbations.ScalarPerturbations]
@@ -948,7 +966,8 @@ class SingleFieldPerturbations(ScalarPerturbations):
             Wavenumber grid in $\mathrm{s}^{-1}$ on which to solve the
             Mukhanov-Sasaki system.
         *params : float
-            Scalar potential parameters forwarded to $V(\phi, *\mathrm{params})$.
+            Scalar potential parameters forwarded to
+            $V(\phi, *\mathrm{params})$.
 
         Returns
         -------
@@ -976,7 +995,8 @@ class SingleFieldPerturbations(ScalarPerturbations):
         k : array-like
             Comoving wavenumber grid in $\mathrm{s}^{-1}$.
         *params : float
-            Scalar potential parameters forwarded to $V(\phi, *\mathrm{params})$.
+            Scalar potential parameters forwarded to
+            $V(\phi, *\mathrm{params})$.
 
         Returns
         -------
@@ -1008,7 +1028,8 @@ class SingleFieldPerturbations(ScalarPerturbations):
             Comoving wavenumber grid in $\mathrm{s}^{-1}$ for the full
             perturbation run.
         params : tuple
-            Extra parameters forwarded to the potential $V(\phi, *\mathrm{params})$.
+            Extra parameters forwarded to the potential
+            $V(\phi, *\mathrm{params})$.
 
         Returns
         -------

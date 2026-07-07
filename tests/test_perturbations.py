@@ -51,6 +51,6 @@ def test_single_field_perturbations_interface():
     pz = np.array(pert(k, m))
     assert np.all(np.isfinite(pz)) and np.all(pz > 0)
 
-    # prepare() solves once and returns a spline; at the nodes it matches __call__
+    # prepare() solves once, returns a spline; at the nodes it matches __call__
     nodes = np.array(pert.prepare(k, m)(k))
     assert np.allclose(nodes, pz, rtol=1e-6)

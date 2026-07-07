@@ -46,3 +46,8 @@ sigway = ["binning_coefficients/*.txt", "binning_coefficients/*.h5"]
 
 [tool.black]
 line_length = 80
+
+[tool.pyright]
+# scripts/generate_reference_spectra.py imports the _sigway_* helpers from
+# tests/ (put on sys.path at runtime).
+extraPaths = ["tests"]

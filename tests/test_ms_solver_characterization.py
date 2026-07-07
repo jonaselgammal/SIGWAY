@@ -160,7 +160,7 @@ def test_ms_solver_golden(name, computed, golden):
 
 @pytest.mark.parametrize("name", ["quadratic", "usr"])
 def test_call_equals_run_perturbations(name, computed):
-    """Invariant the run/__call__ dedup must preserve: they are the same array."""
+    """Invariant the run/__call__ dedup preserves: same array both ways."""
     got = computed[name]
     np.testing.assert_allclose(got["call"], got["pzeta"], rtol=1e-12, atol=0.0)
 
@@ -169,7 +169,9 @@ def test_call_equals_run_perturbations(name, computed):
 def test_run_interpolant_reproduces_nodes(name, computed):
     """run() spline evaluated at the solve nodes returns run_perturbations."""
     got = computed[name]
-    np.testing.assert_allclose(got["run_nodes"], got["pzeta"], rtol=1e-6, atol=0.0)
+    np.testing.assert_allclose(
+        got["run_nodes"], got["pzeta"], rtol=1e-6, atol=0.0
+    )
 
 
 def _regenerate():
