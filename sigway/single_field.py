@@ -440,6 +440,20 @@ integrator (diffrax Tsit5).
     """
 
 
+# Default ODE-solver settings, used unless overridden via the
+# background_solver_opts / perturbation_solver_opts constructor arguments.  The
+# background keeps every adaptive step (needed to interpolate the trajectory);
+# the perturbation solver stores only the final mode amplitude to save memory.
+DEFAULT_BACKGROUND_OPTS = SolverOptions(
+    rtol=1e-8, atol=1e-8, max_steps=100_000, dt0=1e-3,
+    saveat=SaveAt(steps=True),
+)
+DEFAULT_PERTURBATION_OPTS = SolverOptions(
+    rtol=1e-6, atol=1e-6, max_steps=1_000_000, dt0=1e-3,
+    saveat=SaveAt(t1=True),
+)
+
+
 def _merge_solver_opts(defaults, overrides, label):
     """Apply an ``overrides`` dict on top of a default ``SolverOptions``.
 
@@ -591,31 +605,11 @@ class SingleFieldPerturbations(ScalarPerturbations):
         # output.
         self.cmb_check = cmb_check
 
-        # Default solver options
-        default_solver_opts = {
-            "background": SolverOptions(
-                rtol=1e-8,
-                atol=1e-8,
-                max_steps=100000,
-                dt0=1e-3,
-                saveat=SaveAt(steps=True),
-            ),
-            "perturbation": SolverOptions(
-                rtol=1e-6,
-                atol=1e-6,
-                max_steps=1000000,
-                dt0=1e-3,
-                saveat=SaveAt(t1=True),
-            ),
-        }
-
         self.background_solver_opts = _merge_solver_opts(
-            default_solver_opts["background"], background_solver_opts,
-            "background",
+            DEFAULT_BACKGROUND_OPTS, background_solver_opts, "background"
         )
         self.perturbation_solver_opts = _merge_solver_opts(
-            default_solver_opts["perturbation"], perturbation_solver_opts,
-            "perturbation",
+            DEFAULT_PERTURBATION_OPTS, perturbation_solver_opts, "perturbation"
         )
 
     def run_background(self, params):
