@@ -249,7 +249,7 @@ class OmegaGW:
 
         Not available when the perturbation spectrum requires a full numerical
         mode-function integration (e.g.
-        [SingleFieldPerturbations][sigway.perturbations.SingleFieldPerturbations]).
+        [SingleFieldPerturbations][sigway.single_field.SingleFieldPerturbations]).
 
         Parameters
         ----------
@@ -276,7 +276,7 @@ class OmegaGW:
         ValueError
             If the perturbation object does not support automatic
             differentiation (e.g.
-            [SingleFieldPerturbations][sigway.perturbations.SingleFieldPerturbations]).
+            [SingleFieldPerturbations][sigway.single_field.SingleFieldPerturbations]).
         """
         if not getattr(self.perturbations, "jittable", True):
             raise ValueError(

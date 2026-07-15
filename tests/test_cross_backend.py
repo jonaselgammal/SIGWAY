@@ -15,11 +15,8 @@ import pytest
 
 from sigway.spectrum import OmegaGW
 from sigway.kernels import RadiationKernel, get_u, get_v
-from sigway.perturbations import (
-    AnalyticPerturbations,
-    SingleFieldPerturbations,
-)
-from sigway.ms_solver import SingleFieldSolver
+from sigway.perturbations import AnalyticPerturbations
+from sigway.single_field import SingleFieldPerturbations
 import _sigway_configs as C
 import _sigway_oracle as oracle
 
@@ -76,19 +73,18 @@ def test_ms_path_matches_same_pzeta_analytic():
     cfg = C.USR_CONFIG
     p = cfg["params"]
     names = ("a", "lam", "v", "nfac")
-    solver = SingleFieldSolver(
+    ms_pert = SingleFieldPerturbations(
         C.usr_potential,
+        names,
         phi0=cfg["phi0"],
-        pi0=cfg["pi0"],
         N_CMB_to_end=cfg["N_CMB_to_end"],
-        k=jnp.array(cfg["k_solver"]),
     )
     s = jnp.array(cfg["s"])
     t = C.usr_t_grid(nf=len(cfg["f"]))
     f = jnp.array(cfg["f"])
 
     ms_model = OmegaGW(
-        SingleFieldPerturbations(solver, names),
+        ms_pert,
         RadiationKernel(),
         s=s,
         t=t,
@@ -109,7 +105,7 @@ def test_ms_path_matches_same_pzeta_analytic():
         float(jnp.max(f * 2 * jnp.pi) * jnp.max(uv)),
         100,
     )
-    pzc = solver.run(kint, *p)
+    pzc = ms_pert.prepare(kint, *p)
     analytic = OmegaGW(
         AnalyticPerturbations(lambda k, *q: pzc(k), names),
         RadiationKernel(),

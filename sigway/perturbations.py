@@ -19,23 +19,22 @@ gravitational-wave integrator:
 * [AnalyticPerturbations][sigway.perturbations.AnalyticPerturbations] —
   wraps any closed-form $\mathcal{P}_\zeta(k,\theta)$ supplied as a Python
   callable.
-* [SingleFieldPerturbations][sigway.perturbations.SingleFieldPerturbations]
+* [SingleFieldPerturbations][sigway.single_field.SingleFieldPerturbations]
   — obtains $\mathcal{P}_\zeta(k)$ by numerically solving the
-  Mukhanov-Sasaki equation for a given inflationary potential via
-  [SingleFieldSolver][sigway.ms_solver.SingleFieldSolver].
+  Mukhanov-Sasaki equation for a given inflationary potential.  It lives in
+  ``sigway.single_field`` (it carries the whole solver) and is imported from
+  there.
 
 The binned / precomputed-coefficient representation is intentionally absent:
 it returns $\Omega_\mathrm{GW}$ directly (bypassing the kernel and $(s,t)$
 quadrature) and is handled as a dedicated path elsewhere.
 """
 
-from sigway.ms_solver import SingleFieldSolver
+__all__ = ["ScalarPerturbations", "AnalyticPerturbations"]
 
-__all__ = [
-    "ScalarPerturbations",
-    "AnalyticPerturbations",
-    "SingleFieldPerturbations",
-]
+# NB: SingleFieldPerturbations lives in sigway.single_field (it carries the
+# whole Mukhanov-Sasaki solver).  It is a ScalarPerturbations subclass and is
+# imported from there directly to avoid a circular import.
 
 
 class ScalarPerturbations:
@@ -119,7 +118,7 @@ class ScalarPerturbations:
         $\mathcal{P}_\zeta$ on its dense $(k u,\, k v)$ grid.  The default
         implementation simply closes over ``__call__`` with the given
         ``params``.
-        [SingleFieldPerturbations][sigway.perturbations.SingleFieldPerturbations]
+        [SingleFieldPerturbations][sigway.single_field.SingleFieldPerturbations]
         overrides this to solve the Mukhanov-Sasaki equation once on
         ``kint`` and return a fast spline interpolant, avoiding a full ODE
         solve at every grid point.
@@ -220,114 +219,3 @@ class AnalyticPerturbations(ScalarPerturbations):
             $\mathcal{P}_\zeta(k,\theta)$ as returned by ``func``.
         """
         return self.func(k, *params)
-
-
-class SingleFieldPerturbations(ScalarPerturbations):
-    r"""Primordial power spectrum $\mathcal{P}_\zeta(k)$ from single-field
-    inflation.
-
-    For inflationary models where no analytic expression for
-    $\mathcal{P}_\zeta(k)$ is available, this class solves the
-    Mukhanov-Sasaki equation numerically using
-    [SingleFieldSolver][sigway.ms_solver.SingleFieldSolver].  The result is
-    exposed through the same ``__call__`` / ``prepare`` interface as every
-    other [ScalarPerturbations][sigway.perturbations.ScalarPerturbations]
-    subclass, so the gravitational-wave integrator is unaware of whether
-    the spectrum is analytic or numerical.
-
-    Because the Mukhanov-Sasaki solver calls SciPy ODE routines internally,
-    it cannot be evaluated inside the compiled, differentiable code path.
-    ``jittable`` is therefore ``False``, and the integrator runs this path
-    eagerly.  Gradients with respect to inflationary potential parameters
-    must be obtained by finite differences.
-
-    Parameters
-    ----------
-    solver : SingleFieldSolver
-        A configured
-        [SingleFieldSolver][sigway.ms_solver.SingleFieldSolver] instance
-        encoding the inflationary potential and integration settings.
-        Passing any other object raises ``ValueError``.
-    param_names : tuple of str, optional
-        Ordered names of the free parameters forwarded to the solver
-        (e.g. potential coefficients).  Defaults to an empty tuple.
-
-    Attributes
-    ----------
-    solver : SingleFieldSolver
-        The wrapped [SingleFieldSolver][sigway.ms_solver.SingleFieldSolver].
-    param_names : tuple of str
-        Ordered parameter names.
-    jittable : bool
-        Always ``False`` for this class; see above.
-
-    Raises
-    ------
-    ValueError
-        If ``solver`` is not an instance of
-        [SingleFieldSolver][sigway.ms_solver.SingleFieldSolver].
-    """
-
-    jittable = (
-        False  # Mukhanov-Sasaki solver uses SciPy ODE routines -> run eagerly
-    )
-
-    def __init__(self, solver, param_names=()):
-        if not isinstance(solver, SingleFieldSolver):
-            raise ValueError(
-                "SingleFieldPerturbations expects a SingleFieldSolver; for a "
-                "closed-form spectrum use AnalyticPerturbations."
-            )
-        self.solver = solver
-        self.param_names = tuple(param_names)
-
-    def __call__(self, k, *params):
-        r"""Evaluate $\mathcal{P}_\zeta$ by solving the Mukhanov-Sasaki
-        equation at $k$.
-
-        Delegates directly to the wrapped solver.  This is the
-        point-by-point evaluation path.  For bulk evaluation on the
-        integrator grid — where solving the ODE at every point separately
-        would be prohibitively slow — use ``prepare`` instead.
-
-        Parameters
-        ----------
-        k : array_like
-            Comoving wavenumber(s) $k$ at which to evaluate $\mathcal{P}_\zeta$.
-        *params : float
-            Inflationary model parameters in the order given by
-            ``param_names``, forwarded to the solver.
-
-        Returns
-        -------
-        array_like
-            $\mathcal{P}_\zeta(k)$ at the requested wavenumbers.
-        """
-        return self.solver(k, *params)
-
-    def prepare(self, kint, *params):
-        r"""Solve the Mukhanov-Sasaki equation once and return a fast
-        interpolant.
-
-        Rather than re-running the full ODE for every point on the
-        integrator's dense $(k u,\, k v)$ grid, this method solves the
-        Mukhanov-Sasaki system once on the supplied wavenumber grid
-        ``kint`` and returns a SciPy spline interpolant.  The integrator
-        then evaluates the cheap interpolant at each grid point.
-
-        Parameters
-        ----------
-        kint : array_like
-            Wavenumber grid $k_{\mathrm{int}}$ on which to solve the
-            Mukhanov-Sasaki equation.  Should span the range of $k$ values
-            required by the subsequent integration.
-        *params : float
-            Inflationary model parameters forwarded to the solver.
-
-        Returns
-        -------
-        callable
-            A single-argument spline interpolant ``f(k)`` approximating
-            $\mathcal{P}_\zeta(k)$ across the range of ``kint``.
-        """
-        return self.solver.run(kint, *params)

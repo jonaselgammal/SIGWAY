@@ -26,8 +26,8 @@ import matplotlib.pyplot as plt
 # Local imports
 from sigway.spectrum import OmegaGW
 from sigway.kernels import RadiationKernel, InstantEMDKernel
-from sigway.perturbations import AnalyticPerturbations, SingleFieldPerturbations
-from sigway.ms_solver import SingleFieldSolver
+from sigway.perturbations import AnalyticPerturbations
+from sigway.single_field import SingleFieldPerturbations
 from sigway.binned_pzeta import Binned_P_zeta
 
 matplotlib.use("Agg")
@@ -133,14 +133,12 @@ def usr_potential(phi, a, lam, v, nfac):
     )
 
 
-solver = SingleFieldSolver(
+usr_pert = SingleFieldPerturbations(
     usr_potential,
+    ("a", "lam", "v", "nfac"),
     phi0=3.0,
-    pi0=0.0,
     N_CMB_to_end=58.0,
-    k=jnp.geomspace(1e-5, 10.0, 200),
 )
-usr_pert = SingleFieldPerturbations(solver, ("a", "lam", "v", "nfac"))
 usr_params = (0.71224, 1.47312e-06, 0.19689, 1.86902e-05)
 kk = jnp.geomspace(1e-5, 10.0, 200)
 pz_usr = usr_pert(kk, *usr_params)

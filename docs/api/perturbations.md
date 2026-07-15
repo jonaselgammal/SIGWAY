@@ -15,6 +15,7 @@ implementations — or subclass the base — and hand it to
 ::: sigway.perturbations.AnalyticPerturbations
     options:
       heading_level: 3
-::: sigway.perturbations.SingleFieldPerturbations
-    options:
-      heading_level: 3
+
+For the single-field (Mukhanov–Sasaki) spectrum, see
+[`SingleFieldPerturbations`][sigway.single_field.SingleFieldPerturbations] in
+[sigway.single_field](single_field.md).

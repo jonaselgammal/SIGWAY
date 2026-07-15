@@ -1,4 +1,4 @@
-# sigway.ms_solver
+# sigway.single_field
 
 Solve a model of inflation to get the primordial spectrum $\mathcal{P}_\zeta(k)$, rather
 than writing it down by hand.
@@ -24,7 +24,7 @@ $$
 = \frac{k^3}{2\pi^2}\,\left|\frac{v_k}{z}\right|^2 .
 $$
 
-## How `SingleFieldSolver` works
+## How `SingleFieldPerturbations` works
 
 For a given potential $V(\phi)$ it proceeds in three steps (the code integrates in e-folds
 $N=\ln a$ rather than conformal time):
@@ -38,27 +38,22 @@ $N=\ln a$ rather than conformal time):
 
 This turns a *model of inflation* — e.g. an ultra-slow-roll quasi-inflection-point
 potential — directly into the small-scale $\mathcal{P}_\zeta$ that sources scalar-induced
-GWs. Wrap the solver in
-[SingleFieldPerturbations][sigway.perturbations.SingleFieldPerturbations] to feed it to an
-[OmegaGW][sigway.spectrum.OmegaGW] model.
+GWs.
+[SingleFieldPerturbations][sigway.single_field.SingleFieldPerturbations] exposes the
+standard [ScalarPerturbations][sigway.perturbations.ScalarPerturbations] interface, so you
+can feed it straight to an [OmegaGW][sigway.spectrum.OmegaGW] model.
 
 ## Solver
 
-::: sigway.ms_solver.SingleFieldSolver
+::: sigway.single_field.SingleFieldPerturbations
     options:
       heading_level: 3
 
 ## Options & errors
 
-::: sigway.ms_solver.SolverOptions
+::: sigway.single_field.SolverOptions
     options:
       heading_level: 3
-::: sigway.ms_solver.ConsistencyError
-    options:
-      heading_level: 3
-
-## Helper functions
-
-::: sigway.ms_solver.interpolation_inner
+::: sigway.single_field.ConsistencyError
     options:
       heading_level: 3
