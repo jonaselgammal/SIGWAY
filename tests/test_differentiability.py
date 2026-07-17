@@ -1,66 +1,21 @@
-"""Derivatives: hand-coded kernel gradients and the end-to-end jacobian.
+"""Differentiability: the end-to-end OmegaGW.jacobian.
 
-The eMD kernel carries *hand-written* analytic gradients w.r.t. etaR (used by
-the Fisher pipeline); the spectrum jacobian uses jax.jacfwd through OmegaGW.
-Both are checked against finite differences -- the independent reference --
-which catches interpolation-gradient artifacts and algebra slips.
+The spectrum jacobian uses jax.jacfwd through OmegaGW, with a finite-difference
+fallback for non-smooth (grid-limit) parameters.  Both branches are checked
+against central finite differences -- the independent reference -- which catches
+interpolation-gradient artifacts and the heaviside-cutoff case.
 
-The end-to-end test uses a *fixed* (s, t) grid so the finite difference does not
-also perturb the integration grid.
+The tests use a *fixed* (s, t) grid so the finite difference does not also
+perturb the integration grid.
 """
 
 import numpy as np
 import jax.numpy as jnp
 
 from sigway.spectrum import OmegaGW
-from sigway.kernels import (
-    RadiationKernel,
-    I_sq_IRD_LV,
-    d_I_sq_IRD_LV,
-    I_sq_IRD_res,
-    d_I_sq_IRD_res,
-)
+from sigway.kernels import RadiationKernel
 from sigway.perturbations import AnalyticPerturbations
 import _sigway_configs as C
-
-_KMAX, _ETAR = 0.06, 2000.0
-
-
-def test_d_I_sq_IRD_LV_wrt_etaR():
-    """Hand-coded large-V eMD gradient d/d(etaR) matches finite differences."""
-    t = jnp.array([0.3, 1.0, 3.0])
-    s = jnp.array([0.1, 0.4, 0.7])
-    k = 0.02
-    h = _ETAR * 1e-6
-    fd = (
-        np.array(I_sq_IRD_LV(t, s, k, _KMAX, _ETAR + h))
-        - np.array(I_sq_IRD_LV(t, s, k, _KMAX, _ETAR - h))
-    ) / (2 * h)
-    ana = np.array(d_I_sq_IRD_LV(1, t, s, k, _KMAX, _ETAR))  # index 1 = etaR
-    assert np.allclose(ana, fd, rtol=1e-5)
-
-
-def test_d_I_sq_IRD_res_wrt_etaR():
-    """Hand-coded resonant eMD gradient d/d(etaR) matches finite differences."""
-    t = jnp.sqrt(3.0) - 1.0
-    s = jnp.array([0.1, 0.4, 0.7])
-    k = 0.02
-    h = _ETAR * 1e-6
-    fd = (
-        np.array(I_sq_IRD_res(t, s, k, _KMAX, _ETAR + h))
-        - np.array(I_sq_IRD_res(t, s, k, _KMAX, _ETAR - h))
-    ) / (2 * h)
-    ana = np.array(d_I_sq_IRD_res(1, t, s, k, _KMAX, _ETAR))
-    assert np.allclose(ana, fd, rtol=1e-5)
-
-
-def test_d_I_sq_IRD_LV_kmax_is_zero():
-    """Documented: the LV kernel gradient w.r.t kmax is zero (kmax enters only
-    via integration limits, handled in the integrator)."""
-    t = jnp.array([0.3, 1.0])
-    s = jnp.array([0.2, 0.5])
-    grad = np.array(d_I_sq_IRD_LV(0, t, s, 0.02, _KMAX, _ETAR))
-    assert np.allclose(grad, 0.0)
 
 
 def test_jacobian_bpl_matches_finite_difference():

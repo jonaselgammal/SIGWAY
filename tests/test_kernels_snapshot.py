@@ -4,7 +4,7 @@ import unittest
 import numpy as np
 
 # Local
-from sigway import omega_gw_jax as og
+from sigway import kernels as og
 from sigway.kernels import I_sq_RD_uv
 
 # Load test data
@@ -23,7 +23,7 @@ class TestUnits(unittest.TestCase):
 
     def test_get_u(self):
         """
-        Test the function get_u from omega_gw_jax.py.
+        Test the function get_u from sigway.kernels.
 
         """
 
@@ -35,7 +35,7 @@ class TestUnits(unittest.TestCase):
 
     def test_get_v(self):
         """
-        Test the function get_v from omega_gw_jax.py.
+        Test the function get_v from sigway.kernels.
 
         """
 
@@ -47,7 +47,7 @@ class TestUnits(unittest.TestCase):
 
     def test_polynomial(self):
         """
-        Test the function polynomial from omega_gw_jax.py.
+        Test the function polynomial from sigway.kernels.
         """
 
         # compute pol from some values of s and t
@@ -58,7 +58,7 @@ class TestUnits(unittest.TestCase):
 
     def test_I_sq_RD(self):
         """
-        Test the function I_sq_RD from omega_gw_jax.py.
+        Test the function I_sq_RD from sigway.kernels.
         """
         # compute pol from some values of s and t
         I_sq_RD_v = og.I_sq_RD(t[:, None], s[None, :], k=1.0)
