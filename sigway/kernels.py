@@ -297,36 +297,6 @@ def I_sq_MD(t, s, k):
     return 18.0 / 25.0
 
 
-# The Large V contribution to the early matter domination kernel contains the
-# Si and Ci trigonometric integrals. These are evaluated directly with
-# jax.scipy.special.sici (jit-able and differentiable; added in jax 0.8), which
-# replaced a 1e7-point interpolation table that was both slower per call and
-# carried a large import-time / memory cost.
-
-
-@jit
-def _sici_precomp(x):
-    r"""Auxiliary combination
-    $4\,\mathrm{Ci}(x/2)^2 + (\pi - 2\,\mathrm{Si}(x/2))^2$.
-
-    This combination of cosine and sine integrals arises from integrating the
-    matter-era Green's function up to the EMD → RD transition time, and appears
-    in the large-$V$ (large-$t$) part of the transitioning kernel.
-
-    Parameters
-    ----------
-    x : jax.Array
-        Argument array; in practice $x = x_R = k\,\eta_R$.
-
-    Returns
-    -------
-    jax.Array
-        Values of the Si/Ci combination, same shape as $x$.
-    """
-    si, ci = sici(x / 2.0)
-    return 4.0 * ci**2 + (jnp.pi - 2.0 * si) ** 2
-
-
 # below are the two main contributions to the transitioning kernel, based on
 # sudden-reheating scenarios. As they are evaluated at different t's we need to
 # evaluate them separately and sum them up.
@@ -347,7 +317,8 @@ def I_sq_IRD_LV(t, s, k, kmax, etaR):
     $t$), where the mode functions have undergone many oscillations inside the
     Hubble radius before the transition.  The result depends on $k$ and
     $\eta_R$ only through the dimensionless combination $x_R = k\,\eta_R$,
-    and is proportional to the Si/Ci combination `_sici_precomp`.
+    and is proportional to the Si/Ci combination
+    $4\,\mathrm{Ci}(x_R/2)^2 + (\pi - 2\,\mathrm{Si}(x_R/2))^2$.
 
     Used by [InstantEMDKernel][sigway.kernels.InstantEMDKernel].
 
@@ -373,7 +344,11 @@ def I_sq_IRD_LV(t, s, k, kmax, etaR):
         $t$, $s$, and $k$.
     """
     xR = k * etaR
-    result = (9.0 * t**4.0 * xR**8.0 * _sici_precomp(xR)) / 81920000.0
+    # Si/Ci combination 4 Ci(xR/2)^2 + (pi - 2 Si(xR/2))^2, evaluated
+    # directly with jax.scipy.special.sici (jit-able, differentiable).
+    si, ci = sici(xR / 2.0)
+    sici_factor = 4.0 * ci**2 + (jnp.pi - 2.0 * si) ** 2
+    result = (9.0 * t**4.0 * xR**8.0 * sici_factor) / 81920000.0
     return 4.0 * result  # the factor of 4 comes from x_R^2/(x_R-x_R/2)^2
 
 

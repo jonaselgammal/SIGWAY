@@ -14,7 +14,7 @@ positive".
 Run with the project interpreter and x64:
 
 ```
-python -m pytest tests/        # 62 tests
+python -m pytest tests/        # 60 tests
 ```
 
 ## Layout
@@ -22,7 +22,6 @@ python -m pytest tests/        # 62 tests
 | file | what it protects | independent reference | key tolerance |
 |---|---|---|---|
 | `test_kernels_rd.py` | RD transfer function `I_sq_RD`/`I_sq_RD_uv`; parity, non-negativity, k-independence | textbook `overline{I^2}(u,v)` (numpy) | rtol 1e-10 |
-| `test_special_functions.py` | Si/Ci combination behind the eMD kernel (`_sici_precomp`, direct `sici`) | `scipy.special.sici` | rtol 1e-9 |
 | `test_simpson_nd.py` | 1-D **and N-D** Simpson contract (the regression the fix repairs) | `scipy.integrate.simpson` | rtol 1e-10 |
 | `test_omega_gw_regression.py` | end-to-end `OmegaGW(f)` for all 5 configs (4 analytic + USR/MS) via `build_model`, vs validated fixtures | stored, oracle-validated fixtures | rtol 1e-4 |
 | `test_omega_gw_model.py` | `OmegaGW` parameter API: ordered `parameter_names`, collision error, keyword routing, jacfwd jacobian, jit no-retrace | finite differences / closed form | rtol 1e-4 |
