@@ -38,7 +38,7 @@ __all__ = [
 # Global
 import jax
 import jax.numpy as jnp
-from jax import jit, lax
+from jax import jit
 from jax.scipy.special import sici
 
 # Local
@@ -297,71 +297,6 @@ def I_sq_MD(t, s, k):
     return 18.0 / 25.0
 
 
-# The Large V contribution to the early matter domination kernel contains the
-# Si and Ci trigonometric integrals. These are evaluated directly with
-# jax.scipy.special.sici (jit-able and differentiable; added in jax 0.8), which
-# replaced a 1e7-point interpolation table that was both slower per call and
-# carried a large import-time / memory cost.
-
-
-@jit
-def _sici_precomp(x):
-    r"""Auxiliary combination
-    $4\,\mathrm{Ci}(x/2)^2 + (\pi - 2\,\mathrm{Si}(x/2))^2$.
-
-    This combination of cosine and sine integrals arises from integrating the
-    matter-era Green's function up to the EMD → RD transition time, and appears
-    in the large-$V$ (large-$t$) part of the transitioning kernel.
-
-    Parameters
-    ----------
-    x : jax.Array
-        Argument array; in practice $x = x_R = k\,\eta_R$.
-
-    Returns
-    -------
-    jax.Array
-        Values of the Si/Ci combination, same shape as $x$.
-    """
-    si, ci = sici(x / 2.0)
-    return 4.0 * ci**2 + (jnp.pi - 2.0 * si) ** 2
-
-
-@jit
-def _d_sici_precomp(x):
-    r"""Derivative of `_sici_precomp` with respect to $x$.
-
-    Closed-form result using $\mathrm{Si}'(y) = \sin(y)/y$ and
-    $\mathrm{Ci}'(y) = \cos(y)/y$ with $y = x/2$:
-
-    $$\frac{d}{dx}\!\left[4\,\mathrm{Ci}^2\!\left(\tfrac{x}{2}\right)
-        + \left(\pi - 2\,\mathrm{Si}\!\left(\tfrac{x}{2}\right)\right)^2\right]
-    = \frac{8\cos\!\left(\tfrac{x}{2}\right)
-            \mathrm{Ci}\!\left(\tfrac{x}{2}\right)
-            - 4\sin\!\left(\tfrac{x}{2}\right)
-            \!\left(\pi - 2\,\mathrm{Si}\!\left(\tfrac{x}{2}\right)\right)}
-        {x}.$$
-
-    This is used in the analytic gradient of the large-$V$ kernel with respect
-    to $\eta_R$ (via the chain rule on $x_R = k\,\eta_R$).
-
-    Parameters
-    ----------
-    x : jax.Array
-        Argument array; in practice $x = x_R = k\,\eta_R$.
-
-    Returns
-    -------
-    jax.Array
-        Derivative values, same shape as $x$.
-    """
-    si, ci = sici(x / 2.0)
-    return (
-        8.0 * jnp.cos(x / 2.0) * ci
-        - 4.0 * jnp.sin(x / 2.0) * (jnp.pi - 2.0 * si)
-    ) / x
-
-
 # below are the two main contributions to the transitioning kernel, based on
 # sudden-reheating scenarios. As they are evaluated at different t's we need to
 # evaluate them separately and sum them up.
@@ -382,9 +317,8 @@ def I_sq_IRD_LV(t, s, k, kmax, etaR):
     $t$), where the mode functions have undergone many oscillations inside the
     Hubble radius before the transition.  The result depends on $k$ and
     $\eta_R$ only through the dimensionless combination $x_R = k\,\eta_R$,
-    and is proportional to the Si/Ci combination `_sici_precomp`.  The
-    integration domain in $(t, s)$ is bounded by $k_{\max}$ via
-    $x_{\max,R} = k_{\max}\,\eta_R$.
+    and is proportional to the Si/Ci combination
+    $4\,\mathrm{Ci}(x_R/2)^2 + (\pi - 2\,\mathrm{Si}(x_R/2))^2$.
 
     Used by [InstantEMDKernel][sigway.kernels.InstantEMDKernel].
 
@@ -397,9 +331,9 @@ def I_sq_IRD_LV(t, s, k, kmax, etaR):
     k : jax.Array
         GW wave-number (Mpc$^{-1}$).
     kmax : float
-        Cutoff wave-number of the scalar power spectrum (Mpc$^{-1}$); sets the
-        upper boundary of the $(t, s)$ integration domain via
-        $x_{\max,R} = k_{\max}\,\eta_R$.
+        Unused; accepted for a uniform kernel-core signature.  The $k_{\max}$
+        cutoff of the scalar power spectrum bounds the $(t, s)$ domain via the
+        perturbation spectrum, applied by the integrator, not here.
     etaR : float
         Conformal time at the EMD → RD transition (Mpc).
 
@@ -410,69 +344,12 @@ def I_sq_IRD_LV(t, s, k, kmax, etaR):
         $t$, $s$, and $k$.
     """
     xR = k * etaR
-    xmaxR = kmax * etaR
-    xmaxR_ratio = xmaxR / xR
-
-    # Calculate the bounds for s and t
-    s_max = jnp.where(xR <= xmaxR, 1.0, 2.0 * xmaxR_ratio - 1.0)
-    t_max = -s + 2.0 * xmaxR_ratio - 1.0
-
-    # Ensure that t respects the bounds
-    valid_t = jnp.logical_and(t >= 0, t <= t_max)
-    valid_s = jnp.logical_and(s >= 0, s <= s_max)
-
-    # Calculate the result only within valid regions
-    result = jnp.where(
-        valid_t & valid_s,
-        (9.0 * t**4.0 * xR**8.0 * _sici_precomp(xR)) / 81920000.0,
-        0.0,
-    )
-    result = (9.0 * t**4.0 * xR**8.0 * _sici_precomp(xR)) / 81920000.0
-
+    # Si/Ci combination 4 Ci(xR/2)^2 + (pi - 2 Si(xR/2))^2, evaluated
+    # directly with jax.scipy.special.sici (jit-able, differentiable).
+    si, ci = sici(xR / 2.0)
+    sici_factor = 4.0 * ci**2 + (jnp.pi - 2.0 * si) ** 2
+    result = (9.0 * t**4.0 * xR**8.0 * sici_factor) / 81920000.0
     return 4.0 * result  # the factor of 4 comes from x_R^2/(x_R-x_R/2)^2
-
-
-@jit
-def d_I_sq_IRD_LV(index, t, s, k, kmax, etaR):
-    r"""Analytic gradient of the smooth EMD → RD kernel with respect to
-    $k_{\max}$ or $\eta_R$.
-
-    Returns the partial derivative of `I_sq_IRD_LV` selected by *index*.
-    The gradient with respect to $k_{\max}$ is identically zero inside the
-    kernel body because $k_{\max}$ only shifts the integration domain
-    boundaries; the corresponding boundary term is handled separately by the
-    integrator.  The gradient with respect to $\eta_R$ follows from the chain
-    rule on $x_R = k\,\eta_R$.
-
-    Parameters
-    ----------
-    index : int
-        Selects the differentiation target: ``0`` for $k_{\max}$, ``1`` for
-        $\eta_R$.
-    t : jax.Array
-        Dimensionless combination $t = u + v - 1$.
-    s : jax.Array
-        Dimensionless combination $s = u - v$.
-    k : jax.Array
-        GW wave-number (Mpc$^{-1}$).
-    kmax : float
-        Cutoff wave-number of the scalar power spectrum (Mpc$^{-1}$).
-    etaR : float
-        Conformal time at the EMD → RD transition (Mpc).
-
-    Returns
-    -------
-    jax.Array
-        Gradient values, same shape as the broadcast of $t$, $s$, and $k$.
-    """
-    result = I_sq_IRD_LV(t, s, k, kmax, etaR)
-    xR = k * etaR
-    grad_etaR = k * (_d_sici_precomp(xR) / _sici_precomp(xR) + 8 / xR) * result
-    # The gradient w.r.t anyting but etaR is zero
-    grad_zero = jnp.zeros_like(result)
-    return lax.cond(
-        index == 0, lambda _: grad_zero, lambda _: grad_etaR, operand=None
-    )
 
 
 # the resonant contribution when u+v ~ 1/c_s, or t = sqrt(3) - 1
@@ -524,53 +401,6 @@ def I_sq_IRD_res(t, s, k, kmax, etaR):
     ci_val = 7.97727 / xR
     result = fudge * (num / den) * ci_val
     return 4 * result  # the factor of 4 comes from x_R^2/(x_R-x_R/2)^2
-
-
-@jit
-def d_I_sq_IRD_res(index, t, s, k, kmax, etaR):
-    r"""Analytic gradient of the resonant EMD → RD kernel with respect to
-    $k_{\max}$ or $\eta_R$.
-
-    Returns the partial derivative of `I_sq_IRD_res` selected by *index*.
-    The gradient with respect to $k_{\max}$ is identically zero (the resonant
-    integrand does not depend on $k_{\max}$ directly).  The gradient with
-    respect to $\eta_R$ follows from the power-law dependence of the kernel on
-    $x_R = k\,\eta_R$: since the resonant kernel scales as $x_R^7$, the
-    derivative is $7 / \eta_R$ times the kernel value.
-
-    Parameters
-    ----------
-    index : int
-        Selects the differentiation target: ``0`` for $k_{\max}$, ``1`` for
-        $\eta_R$.
-    t : jax.Array
-        Dimensionless combination $t = u + v - 1$.
-    s : jax.Array
-        Dimensionless combination $s = u - v$.
-    k : jax.Array
-        GW wave-number (Mpc$^{-1}$).
-    kmax : float
-        Cutoff wave-number of the scalar power spectrum (Mpc$^{-1}$).
-    etaR : float
-        Conformal time at the EMD → RD transition (Mpc).
-
-    Returns
-    -------
-    jax.Array
-        Gradient values, same shape as the broadcast of $t$, $s$, and $k$.
-    """
-    # Get the main result using the provided function
-    result = I_sq_IRD_res(t, s, k, kmax, etaR)
-    # The gradient w.r.t anyting but etaR is zero
-    grad_zero = jnp.zeros_like(result)
-    # Compute the gradient w.r.t etaR
-    grad_etaR = (
-        7 / etaR * result
-    )  # Based on the simplified result of the derivative
-    # Use lax.cond to select the derivative based on idx
-    return lax.cond(
-        index == 0, lambda _: grad_zero, lambda _: grad_etaR, operand=None
-    )
 
 
 class Kernel:

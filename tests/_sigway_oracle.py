@@ -20,8 +20,8 @@ from scipy.integrate import simpson, dblquad, quad
 from scipy.special import sici
 
 # Prefactor applied as  Omega_GW = NORM[norm] * (double integral).
-# Mirrors  OmegaGWjax.__call__:  out = 2 * self.norm(k) * integral, with
-# self.norm("RD") = CG/24 * OMEGA_R  and  self.norm("CT") = 1/24.
+# NORM["RD"] = CG/24 * OMEGA_R, NORM["CT"] = 1/24 (this independent oracle
+# keeps its own prefactor convention, cross-checked against sigway output).
 _OMEGA_R = 4.2e-5
 _CG = 0.39
 NORM = {"RD": 2.0 * _CG / 24.0 * _OMEGA_R, "CT": 2.0 / 24.0}
