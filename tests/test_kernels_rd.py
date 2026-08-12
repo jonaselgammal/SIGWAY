@@ -17,10 +17,12 @@ import pytest
 from sigway.kernels import (
     I_sq_RD,
     I_sq_RD_uv,
+    I_sq_MD,
     I_sq_IRD_LV,
     I_sq_IRD_res,
     RadiationKernel,
     InstantEMDKernel,
+    PureMDKernel,
 )
 from _sigway_oracle import kernel_RD_text
 
@@ -78,3 +80,19 @@ def test_kernel_norm_override_and_error():
     assert np.isclose(RadiationKernel(norm=2.5).norm(1.0), 2.5)
     with pytest.raises(ValueError, match="Unknown norm preset"):
         RadiationKernel(norm="nope")
+
+
+def test_pure_md_kernel_class():
+    """PureMDKernel wraps the constant I_sq_MD = 18/25 core and its metadata."""
+    kern = PureMDKernel()
+    t = jnp.array([0.3, 1.0])
+    s = jnp.array([0.2, 0.5])
+    assert np.array_equal(
+        np.array(kern.overline_Isq(t, s, 1.0)),
+        np.array(I_sq_MD(t, s, 1.0)),
+    )
+    assert np.isclose(float(I_sq_MD(t, s, 1.0)), 18.0 / 25.0)
+    assert kern.k_dependent is False
+    assert kern.param_names == ()
+    assert kern.resonant_t == ()
+    assert np.isclose(kern.norm(1.0), 1.0 / 12.0)  # CT default
