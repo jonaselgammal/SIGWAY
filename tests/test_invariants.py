@@ -23,8 +23,7 @@ def _lognormal_model(s, t, f):
         RadiationKernel(),
         s=jnp.asarray(s),
         t=t,
-        f=jnp.array(f),
-        upsample=True,
+        interp_grid=jnp.array(f),
     )
 
 

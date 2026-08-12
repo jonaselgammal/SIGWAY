@@ -65,7 +65,6 @@ def _fixed_grid_lognormal():
         RadiationKernel(),
         s=jnp.array(cfg["s"]),
         t=t_fixed,
-        upsample=False,
     )
     return model, f, p
 
@@ -101,14 +100,12 @@ def test_one_dimensional_t_grid_broadcasts():
         RadiationKernel(),
         s=jnp.array(cfg["s"]),
         t=t1d,
-        upsample=False,
     )
     m2 = OmegaGW(
         AnalyticPerturbations(cfg["pzeta"], names),
         RadiationKernel(),
         s=jnp.array(cfg["s"]),
         t=t2d,
-        upsample=False,
     )
     assert np.allclose(np.array(m1(f, *p)), np.array(m2(f, *p)))
 
@@ -120,3 +117,62 @@ def test_analytic_path_does_not_retrace():
     n = _simpson_constant._cache_size()
     model(f, p[0] + 0.3, p[1], p[2])  # different theta, same shapes
     assert _simpson_constant._cache_size() == n
+
+
+def _powerlaw_model(interp_grid=None, interp="linear"):
+    """RD kernel + a pure power-law P_zeta on a fixed (s, t) grid.
+
+    RadiationKernel is k-independent, so a power-law P_zeta(k) = A k^n makes the
+    un-normalised integral an exact power law res(k) ∝ k^(2n) -- the case where
+    log-log interpolation is exact and linear interpolation is not.
+    """
+    def pz(k, logA, n):
+        return 10.0**logA * k**n
+
+    return OmegaGW(
+        AnalyticPerturbations(pz, ("logA", "n")),
+        RadiationKernel(),
+        s=jnp.linspace(0.0, 1.0, 17),
+        t=jnp.geomspace(1e-2, 1e2, 200),
+        interp_grid=interp_grid,
+        interp=interp,
+    )
+
+
+def test_interp_loglog_exact_for_power_law():
+    """interp='loglog' reproduces the direct spectrum for a power law; linear
+    (the other mode) is visibly worse on the same coarse grid."""
+    p = (-1.0, -0.7)  # logA, n  ->  res(k) ∝ k^(-1.4)
+    grid = np.geomspace(1e-3, 1e0, 12)
+    # dense off-grid frequencies strictly inside the grid (no extrapolation)
+    f = np.geomspace(grid[0] * 1.05, grid[-1] * 0.95, 60)
+
+    truth = np.array(_powerlaw_model()(jnp.array(f), *p))
+    loglog = np.array(
+        _powerlaw_model(interp_grid=grid, interp="loglog")(jnp.array(f), *p)
+    )
+    linear = np.array(
+        _powerlaw_model(interp_grid=grid, interp="linear")(jnp.array(f), *p)
+    )
+
+    err_loglog = np.max(np.abs(loglog / truth - 1.0))
+    err_linear = np.max(np.abs(linear / truth - 1.0))
+    assert err_loglog < 1e-8            # exact up to float / integrator noise
+    assert err_linear > 1e-3            # linear cannot follow the power law
+    assert err_linear > 100 * err_loglog
+
+
+def test_interp_grid_none_ignores_interp_mode():
+    """Without interp_grid the spectrum is integrated directly; interp is a
+    no-op, so 'linear' and 'loglog' constructions agree exactly."""
+    p = (-1.0, -0.7)
+    f = np.geomspace(1e-3, 1e0, 20)
+    a = np.array(_powerlaw_model(interp="linear")(jnp.array(f), *p))
+    b = np.array(_powerlaw_model(interp="loglog")(jnp.array(f), *p))
+    np.testing.assert_array_equal(a, b)
+
+
+def test_interp_mode_validated():
+    """An unknown interp mode is rejected at construction."""
+    with pytest.raises(ValueError, match="interp must be"):
+        _powerlaw_model(interp="log")

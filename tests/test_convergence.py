@@ -36,7 +36,6 @@ def _lognormal_omega_at(f0, ns, nt_lo, nt_hi):
         RadiationKernel(),
         s=jnp.linspace(0, 1, ns),
         t=tgrid,
-        upsample=False,
     )
     return float(np.array(m(jnp.array([f0]), *p))[0])
 

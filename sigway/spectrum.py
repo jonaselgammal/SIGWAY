@@ -69,14 +69,19 @@ class OmegaGW:
         [SimpsonIntegrator][sigway.integrators.SimpsonIntegrator] when
         ``integrator`` is not provided.  A callable receives
         ``(k, *theta)`` and returns the grid dynamically.
-    f : array-like, optional
-        A fixed internal frequency grid (Hz) used when ``upsample=True``.
-        The spectrum is computed on this coarser grid and then interpolated
-        onto the frequencies requested at call time — useful for speeding up
-        repeated evaluations at many different frequency arrays.
-    upsample : bool, optional
-        If ``True``, integrate on the fixed ``f`` grid and interpolate
-        results onto the call-time frequencies.  Requires ``f`` to be set.
+    interp_grid : array-like, optional
+        A fixed internal frequency grid (Hz).  When provided, the (expensive)
+        integration is performed only on this grid and the result is
+        interpolated onto the frequencies requested at call time — useful for
+        speeding up repeated evaluations at many different, finer frequency
+        arrays.  When ``None`` (the default) the spectrum is integrated
+        directly at the call-time frequencies and no interpolation happens.
+    interp : {"linear", "loglog"}, optional
+        Interpolation used when ``interp_grid`` is set.  ``"linear"`` (the
+        default) interpolates $\Omega_{\mathrm{GW}}$ linearly in $f$;
+        ``"loglog"`` interpolates $\log\Omega_{\mathrm{GW}}$ linearly in
+        $\log f$, which is exact for a power law — pass a ``geomspace``
+        ``interp_grid`` to interpolate the spectrum in log–log space.
 
     Attributes
     ----------
@@ -87,10 +92,12 @@ class OmegaGW:
     integrator : Integrator
         The numerical integrator (built from ``s``/``t`` if not supplied
         directly).
-    f : jax.Array or None
-        Internal frequency grid for upsampling, or ``None``.
-    upsample : bool
-        Whether frequency-grid upsampling is active.
+    interp_grid : jax.Array or None
+        Internal frequency grid the integration runs on, or ``None`` when the
+        spectrum is integrated directly at the call-time frequencies.
+    interp : str
+        Interpolation mode (``"linear"`` or ``"loglog"``) used when
+        ``interp_grid`` is set.
     parameter_names : tuple of str
         All free parameters of the model in evaluation order: perturbation
         parameters first, then kernel parameters.  Parameters must have
@@ -122,8 +129,8 @@ class OmegaGW:
         integrator=None,
         s=None,
         t=None,
-        f=None,
-        upsample=False,
+        interp_grid=None,
+        interp="linear",
     ):
         if integrator is None:
             if s is None or t is None:
@@ -134,12 +141,14 @@ class OmegaGW:
         self.perturbations = perturbations
         self.kernel = kernel
         self.integrator = integrator
-        self.f = None if f is None else jnp.asarray(f)
-        self.upsample = upsample
-        if self.upsample and self.f is None:
+        self.interp_grid = (
+            None if interp_grid is None else jnp.asarray(interp_grid)
+        )
+        if interp not in ("linear", "loglog"):
             raise ValueError(
-                "upsample=True requires 'f' to be provided at construction."
+                "interp must be 'linear' or 'loglog', got {!r}.".format(interp)
             )
+        self.interp = interp
         pz_names = tuple(perturbations.param_names)
         k_names = tuple(kernel.param_names)
         collisions = set(pz_names) & set(k_names)
@@ -211,15 +220,22 @@ class OmegaGW:
         theta_pz, theta_k = self._split(theta)
 
         kvec_full = jnp.asarray(f) * 2 * jnp.pi
-        if self.upsample:
-            kvec = self.f * 2 * jnp.pi
+        if self.interp_grid is not None:
+            kvec = self.interp_grid * 2 * jnp.pi
         else:
             kvec = kvec_full
         res = self.integrator.integrate(
             self.kernel, self.perturbations, kvec, theta_pz, theta_k
         )
-        if self.upsample:
-            res = jnp.interp(kvec_full, kvec, res)
+        if self.interp_grid is not None:
+            if self.interp == "loglog":
+                res = jnp.exp(
+                    jnp.interp(
+                        jnp.log(kvec_full), jnp.log(kvec), jnp.log(res)
+                    )
+                )
+            else:
+                res = jnp.interp(kvec_full, kvec, res)
         return self.kernel.norm(kvec_full) * res
 
     def jacobian(self, f, theta, fd_params=None):

@@ -32,7 +32,6 @@ def test_jacobian_bpl_matches_finite_difference():
         RadiationKernel(),
         s=jnp.array(cfg["s"]),
         t=t_fixed,
-        upsample=False,
     )
     J = np.array(m.jacobian(f, jnp.array(p)))
     for idx in range(len(p)):

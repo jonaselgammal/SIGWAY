@@ -88,8 +88,7 @@ def test_ms_path_matches_same_pzeta_analytic():
         RadiationKernel(),
         s=s,
         t=t,
-        f=f,
-        upsample=True,
+        interp_grid=f,
     )
     og_ms = np.array(ms_model(f, *p))
 
@@ -111,8 +110,7 @@ def test_ms_path_matches_same_pzeta_analytic():
         RadiationKernel(),
         s=s,
         t=t,
-        f=f,
-        upsample=True,
+        interp_grid=f,
     )
     og_an = np.array(analytic(f, *p))
     np.testing.assert_allclose(

@@ -370,8 +370,7 @@ def build_model(name):
             kernel_for(name),
             s=jnp.array(cfg["s"]),
             t=usr_t_grid(nf=len(cfg["f"])),
-            f=jnp.array(cfg["f"]),
-            upsample=True,
+            interp_grid=jnp.array(cfg["f"]),
         )
     cfg = ANALYTIC_CONFIGS[name]
     return OmegaGW(
@@ -379,6 +378,5 @@ def build_model(name):
         kernel_for(name),
         s=jnp.array(cfg["s"]),
         t=cfg["t"],
-        f=jnp.array(cfg["f"]),
-        upsample=True,
+        interp_grid=jnp.array(cfg["f"]),
     )
