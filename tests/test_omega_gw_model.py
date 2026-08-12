@@ -176,3 +176,38 @@ def test_interp_mode_validated():
     """An unknown interp mode is rejected at construction."""
     with pytest.raises(ValueError, match="interp must be"):
         _powerlaw_model(interp="log")
+
+
+def test_interp_loglog_safe_when_res_hits_zero():
+    """loglog must not produce nan/-inf when the un-normalised spectrum is
+    exactly zero on some grid nodes (log(0) territory). A P_zeta with a sharp
+    low-k cutoff zeroes the lowest interp_grid node; the output must stay
+    finite and non-negative."""
+    grid = np.geomspace(1e-3, 1e0, 12)
+    # kcut chosen so every internal momentum u*k at the lowest node sits below
+    # the cutoff (u_max = (t_max+s_max+1)/2 ~ 51 on the grid below) -> res == 0
+    # there, while higher nodes keep support.
+    kcut = 51.0 * (grid[0] * 2 * np.pi) * 1.5
+
+    def pz(k, logA):
+        return 10.0**logA * jnp.where(k > kcut, 1.0, 0.0)
+
+    def build(**kw):
+        return OmegaGW(
+            AnalyticPerturbations(pz, ("logA",)),
+            RadiationKernel(),
+            s=jnp.linspace(0.0, 1.0, 17),
+            t=jnp.geomspace(1e-2, 1e2, 200),
+            **kw,
+        )
+
+    # confirm the guard is actually exercised: some grid nodes are exactly 0,
+    # but not all (norm > 0, so Omega == 0 iff res == 0).
+    direct = np.array(build()(jnp.array(grid), -1.0))
+    assert np.any(direct == 0.0)
+    assert np.any(direct > 0.0)
+
+    f = np.geomspace(grid[0] * 1.05, grid[-1] * 0.95, 40)
+    out = np.array(build(interp_grid=grid, interp="loglog")(jnp.array(f), -1.0))
+    assert np.all(np.isfinite(out))
+    assert np.all(out >= 0.0)

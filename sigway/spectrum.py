@@ -82,6 +82,10 @@ class OmegaGW:
         ``"loglog"`` interpolates $\log\Omega_{\mathrm{GW}}$ linearly in
         $\log f$, which is exact for a power law — pass a ``geomspace``
         ``interp_grid`` to interpolate the spectrum in log–log space.
+        Non-positive spectrum values (a sharp cutoff, an underflowed tail, or
+        round-off noise) are floored to the smallest positive float before the
+        log, so ``"loglog"`` never returns ``nan``/``-inf``; it is best suited
+        to spectra that stay positive across ``interp_grid``.
 
     Attributes
     ----------
@@ -229,10 +233,17 @@ class OmegaGW:
         )
         if self.interp_grid is not None:
             if self.interp == "loglog":
+                # log() is only defined for res > 0. Floor at the smallest
+                # positive float so zeros (e.g. cutoff spectra / underflowed
+                # tails) and round-off-negative entries map to a finite, very
+                # negative log instead of -inf / nan. For a strictly positive
+                # spectrum the floor never bites, so the interpolation stays
+                # exact for a power law. Stays traceable (no value branching)
+                # for use under jacobian's jacfwd.
+                floor = jnp.finfo(res.dtype).tiny
+                log_res = jnp.log(jnp.maximum(res, floor))
                 res = jnp.exp(
-                    jnp.interp(
-                        jnp.log(kvec_full), jnp.log(kvec), jnp.log(res)
-                    )
+                    jnp.interp(jnp.log(kvec_full), jnp.log(kvec), log_res)
                 )
             else:
                 res = jnp.interp(kvec_full, kvec, res)
