@@ -18,6 +18,7 @@ __all__ = [
     "simpson_nonuniform_odd",
     "do_broadcasting",
     "no_broadcasting",
+    "interpolate_spectrum",
 ]
 
 # Global
@@ -483,3 +484,49 @@ def simpson_nonuniform(f, x):
 
     # # Additional computation for even N (last segment) if necessary
     return jax.lax.switch((N % 2), simpson_nonuniform_list, f, h, result)
+
+
+def interpolate_spectrum(x_out, x_in, y_in, mode="linear"):
+    r"""Resample a spectrum ``y_in`` from ``x_in`` onto ``x_out``.
+
+    Used by [OmegaGW][sigway.spectrum.OmegaGW] to evaluate the expensive
+    integrand on a coarse internal grid and interpolate it onto the requested
+    frequencies (the ``interp_grid`` feature).
+
+    Parameters
+    ----------
+    x_out : jax.Array
+        Query points to interpolate onto (e.g. the call-time wavenumbers).
+    x_in : jax.Array
+        Monotonically increasing sample points ``y_in`` is defined at.
+    y_in : jax.Array
+        Spectrum values sampled at ``x_in``.
+    mode : {"linear", "loglog"}, optional
+        ``"linear"`` (default) interpolates ``y_in`` linearly in ``x``.
+        ``"loglog"`` interpolates ``log(y_in)`` linearly in ``log(x)``, which
+        is exact for a power law.  Non-positive ``y_in`` entries (a sharp
+        cutoff, an underflowed tail, or round-off noise) are floored to the
+        smallest positive float before the log, so ``"loglog"`` never returns
+        ``nan`` / ``-inf``; it stays traceable (no value branching) for use
+        under ``jax`` transformations such as ``jacfwd``.
+
+    Returns
+    -------
+    jax.Array
+        The interpolated spectrum evaluated at ``x_out``, same shape as
+        ``x_out``.
+
+    Raises
+    ------
+    ValueError
+        If ``mode`` is not ``"linear"`` or ``"loglog"``.
+    """
+    if mode == "loglog":
+        floor = jnp.finfo(y_in.dtype).tiny
+        log_y = jnp.log(jnp.maximum(y_in, floor))
+        return jnp.exp(jnp.interp(jnp.log(x_out), jnp.log(x_in), log_y))
+    if mode == "linear":
+        return jnp.interp(x_out, x_in, y_in)
+    raise ValueError(
+        "mode must be 'linear' or 'loglog', got {!r}.".format(mode)
+    )

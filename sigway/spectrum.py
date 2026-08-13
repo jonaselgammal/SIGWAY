@@ -18,6 +18,7 @@ import jax
 import jax.numpy as jnp
 
 from sigway.integrators import SimpsonIntegrator
+from sigway.utils import interpolate_spectrum
 
 
 class OmegaGW:
@@ -232,21 +233,7 @@ class OmegaGW:
             self.kernel, self.perturbations, kvec, theta_pz, theta_k
         )
         if self.interp_grid is not None:
-            if self.interp == "loglog":
-                # log() is only defined for res > 0. Floor at the smallest
-                # positive float so zeros (e.g. cutoff spectra / underflowed
-                # tails) and round-off-negative entries map to a finite, very
-                # negative log instead of -inf / nan. For a strictly positive
-                # spectrum the floor never bites, so the interpolation stays
-                # exact for a power law. Stays traceable (no value branching)
-                # for use under jacobian's jacfwd.
-                floor = jnp.finfo(res.dtype).tiny
-                log_res = jnp.log(jnp.maximum(res, floor))
-                res = jnp.exp(
-                    jnp.interp(jnp.log(kvec_full), jnp.log(kvec), log_res)
-                )
-            else:
-                res = jnp.interp(kvec_full, kvec, res)
+            res = interpolate_spectrum(kvec_full, kvec, res, self.interp)
         return self.kernel.norm(kvec_full) * res
 
     def jacobian(self, f, theta, fd_params=None):

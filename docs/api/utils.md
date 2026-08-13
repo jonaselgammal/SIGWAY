@@ -16,6 +16,15 @@ Relate comoving wavenumber $k$, e-folds $N$, and the Hubble rate $H$.
     options:
       heading_level: 3
 
+## Spectrum interpolation
+
+Resample a spectrum onto new frequencies, linearly or in log–log space
+(backs the ``interp_grid`` feature of [OmegaGW][sigway.spectrum.OmegaGW]).
+
+::: sigway.utils.interpolate_spectrum
+    options:
+      heading_level: 3
+
 ## Simpson integration
 
 Composite Simpson quadrature on uniform and non-uniform grids.

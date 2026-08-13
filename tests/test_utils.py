@@ -116,5 +116,45 @@ class TestUnits(unittest.TestCase):
         self.assertAlmostEqual(res_1 / res_2, 1.0, places=15)
 
 
+class TestInterpolateSpectrum(unittest.TestCase):
+
+    def test_loglog_exact_for_power_law(self):
+        """log-log interpolation is exact for a power law; linear is not."""
+        x_in = jnp.geomspace(1e-3, 1e0, 12)
+        y_in = 3.0 * x_in ** (-1.4)  # pure power law
+        x_out = jnp.geomspace(1.05e-3, 0.95e0, 60)
+        truth = 3.0 * np.asarray(x_out) ** (-1.4)
+
+        loglog = np.asarray(
+            ut.interpolate_spectrum(x_out, x_in, y_in, "loglog")
+        )
+        linear = np.asarray(
+            ut.interpolate_spectrum(x_out, x_in, y_in, "linear")
+        )
+
+        self.assertLess(np.max(np.abs(loglog / truth - 1.0)), 1e-10)
+        self.assertGreater(np.max(np.abs(linear / truth - 1.0)), 1e-3)
+
+    def test_loglog_safe_when_y_hits_zero(self):
+        """log-log stays finite when y_in contains zeros (log(0) territory)."""
+        x_in = jnp.geomspace(1e-3, 1e0, 12)
+        y_in = jnp.array([0.0, 0.0] + [1.0] * 10)  # zeros at the low end
+        x_out = jnp.geomspace(1.05e-3, 0.95e0, 40)
+        out = np.asarray(ut.interpolate_spectrum(x_out, x_in, y_in, "loglog"))
+        self.assertTrue(np.all(np.isfinite(out)))
+        self.assertTrue(np.all(out >= 0.0))
+
+    def test_linear_default_and_bad_mode(self):
+        """mode defaults to linear (== jnp.interp); unknown mode raises."""
+        x_in = jnp.linspace(1.0, 5.0, 5)
+        y_in = 2.0 * x_in + 1.0
+        x_out = jnp.linspace(1.0, 5.0, 9)
+        default = np.asarray(ut.interpolate_spectrum(x_out, x_in, y_in))
+        ref = np.asarray(jnp.interp(x_out, x_in, y_in))
+        np.testing.assert_array_equal(default, ref)
+        with self.assertRaises(ValueError):
+            ut.interpolate_spectrum(x_out, x_in, y_in, "log")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
