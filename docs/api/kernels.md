@@ -65,9 +65,6 @@ The closed-form transfer functions each kernel evaluates.
 ::: sigway.kernels.I_sq_RD
     options:
       heading_level: 4
-::: sigway.kernels.I_sq_RD_uv
-    options:
-      heading_level: 4
 ::: sigway.kernels.I_sq_MD
     options:
       heading_level: 4

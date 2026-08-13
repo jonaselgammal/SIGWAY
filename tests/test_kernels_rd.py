@@ -16,7 +16,6 @@ import pytest
 
 from sigway.kernels import (
     I_sq_RD,
-    I_sq_RD_uv,
     I_sq_MD,
     I_sq_IRD_LV,
     I_sq_IRD_res,
@@ -32,14 +31,13 @@ _S = np.linspace(0.0, 0.97, 25)  # avoid s=1 boundary (v=0 -> 1/v^3 blow-up)
 _TT, _SS = np.meshgrid(_T, _S, indexing="ij")
 
 
-@pytest.mark.parametrize(
-    "fn,name", [(I_sq_RD, "I_sq_RD"), (I_sq_RD_uv, "I_sq_RD_uv")]
-)
-def test_rd_kernel_matches_textbook(fn, name):
-    """sigway's RD kernel == independent literature form to ~1e-10."""
-    got = np.array(fn(jnp.array(_TT), jnp.array(_SS), k=1.0))
+def test_rd_kernel_matches_textbook():
+    """Production I_sq_RD (t,s form) == independent (u,v) literature
+    re-derivation to ~1e-10 -- two different algebraic forms in two different
+    libraries agreeing pins the kernel."""
+    got = np.array(I_sq_RD(jnp.array(_TT), jnp.array(_SS), k=1.0))
     ref = kernel_RD_text(_TT, _SS)
-    assert np.nanmax(np.abs(got / ref - 1.0)) < 1e-10, name
+    assert np.nanmax(np.abs(got / ref - 1.0)) < 1e-10
 
 
 def test_radiation_kernel_class():
@@ -87,11 +85,11 @@ def test_pure_md_kernel_class():
     kern = PureMDKernel()
     t = jnp.array([0.3, 1.0])
     s = jnp.array([0.2, 0.5])
-    assert np.array_equal(
-        np.array(kern.overline_Isq(t, s, 1.0)),
-        np.array(I_sq_MD(t, s, 1.0)),
-    )
-    assert np.isclose(float(I_sq_MD(t, s, 1.0)), 18.0 / 25.0)
+    got = np.array(kern.overline_Isq(t, s, 1.0))
+    assert np.array_equal(got, np.array(I_sq_MD(t, s, 1.0)))
+    # core broadcasts the 18/25 constant to the shape of its (t, s) inputs
+    assert got.shape == (2,)
+    assert np.allclose(got, 18.0 / 25.0)
     assert kern.k_dependent is False
     assert kern.param_names == ()
     assert kern.resonant_t == ()

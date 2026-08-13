@@ -9,6 +9,7 @@ transitions to radiation domination (see
 reference and cross-checks, not production use.
 """
 
+import jax.numpy as jnp
 from jax import jit
 
 from sigway.kernels.base import Kernel
@@ -45,7 +46,7 @@ def I_sq_MD(t, s, k):
     jax.Array
         Constant $18/25$, broadcast to the shape of $t$.
     """
-    return 18.0 / 25.0
+    return jnp.broadcast_to(18.0 / 25.0, jnp.shape(t))
 
 
 class PureMDKernel(Kernel):

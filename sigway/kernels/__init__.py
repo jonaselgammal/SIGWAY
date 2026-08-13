@@ -31,7 +31,7 @@ Kernel classes:
     Kernel, RadiationKernel, InstantEMDKernel, PureMDKernel
 
 Closed-form cores (evaluated by the kernels above):
-    I_sq_RD, I_sq_RD_uv, I_sq_MD, I_sq_IRD_LV, I_sq_IRD_res
+    I_sq_RD, I_sq_MD, I_sq_IRD_LV, I_sq_IRD_res
 """
 
 from sigway.kernels.base import (
@@ -44,7 +44,6 @@ from sigway.kernels.base import (
 )
 from sigway.kernels.radiation import (
     I_sq_RD,
-    I_sq_RD_uv,
     RadiationKernel,
 )
 from sigway.kernels.matter import (
@@ -72,7 +71,6 @@ __all__ = [
     "PureMDKernel",
     # closed-form cores
     "I_sq_RD",
-    "I_sq_RD_uv",
     "I_sq_MD",
     "I_sq_IRD_LV",
     "I_sq_IRD_res",

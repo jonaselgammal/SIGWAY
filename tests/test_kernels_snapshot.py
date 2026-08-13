@@ -5,7 +5,6 @@ import numpy as np
 
 # Local
 from sigway import kernels as og
-from sigway.kernels import I_sq_RD_uv
 
 # Load test data
 test_data = np.load(
@@ -72,21 +71,6 @@ class TestUnits(unittest.TestCase):
         self.assertTrue(
             np.allclose(I_sq_RD_v, I_sq_RD, rtol=1e-7, atol=1e-9 * scale)
         )
-
-    def test_I_sq_RD_vs_uv(self):
-        """
-        Test that the two function I_sq_RD and I_sq_RD_uv give the same output
-        (up to numerical precision) in a reasonable range for t.
-        """
-        tt = np.geomspace(0.01, 100, 10)
-
-        # compute I_sq_RD from some values of s and t
-        I_sq_RD = og.I_sq_RD(tt[:, None], s[None, :], k=1.0)
-
-        I_sq_RD_2 = I_sq_RD_uv(tt[:, None], s[None, :], k=1.0)
-
-        # check that the output is correct
-        self.assertAlmostEqual(np.sum(I_sq_RD / I_sq_RD_2 - 1), 0.0, places=7)
 
 
 if __name__ == "__main__":
