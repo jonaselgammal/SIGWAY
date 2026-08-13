@@ -36,26 +36,12 @@ NORM_PRESETS = {
 
 
 def resolve_norm_preset(spec):
-    r"""Turn a normalisation spec into a $k \to \mathcal{N}(k)$ callable.
+    r"""Turn a normalisation spec into a uniform ``k -> value`` callable.
 
-    Parameters
-    ----------
-    spec : str, float, or callable
-        A preset key (one of :data:`NORM_PRESETS`, i.e. ``'RD'``, ``'CT'``,
-        ``'bare'``); a float used as a constant prefactor; or a callable that
-        accepts a wave-number array $k$ and returns the prefactor.
-
-    Returns
-    -------
-    callable
-        A function ``k -> value`` giving the $\Omega_{\rm GW}$ prefactor. For a
-        preset or float the value is constant in $k$; a callable is returned
-        unchanged.
-
-    Raises
-    ------
-    ValueError
-        If *spec* is a string that is not a recognised preset.
+    Wraps a preset key (from :data:`NORM_PRESETS`: ``'RD'``, ``'CT'``,
+    ``'bare'``) or a constant float as ``lambda k: value``, and returns a
+    ``k``-dependent callable unchanged, so every kernel's norm shares one
+    ``(k)`` signature. Raises ``ValueError`` on an unknown preset string.
     """
     if isinstance(spec, str):
         if spec not in NORM_PRESETS:
