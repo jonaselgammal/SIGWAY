@@ -44,9 +44,9 @@ def I_sq_MD(t, s, k):
     Returns
     -------
     jax.Array
-        Constant $18/25$, broadcast to the shape of $t$.
+        Constant $18/25$, broadcast to the broadcast shape of $t$ and $s$.
     """
-    return jnp.broadcast_to(18.0 / 25.0, jnp.shape(t))
+    return jnp.broadcast_to(18.0 / 25.0, jnp.shape(t + s))
 
 
 class PureMDKernel(Kernel):
